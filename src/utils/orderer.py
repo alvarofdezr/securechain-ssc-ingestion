@@ -46,4 +46,5 @@ class Orderer:
             "MavenPackage": MavenVersion,
             "RubyGemsPackage": RubygemsVersion,
             "NuGetPackage": NugetVersion,
+            "GoPackage": SemverVersion, #added for Go, using Semver as a common choice for Go versioning
         }.get(self.node_type, Version)

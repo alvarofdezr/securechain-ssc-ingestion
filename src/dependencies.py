@@ -27,6 +27,7 @@ if TYPE_CHECKING:
         RubyGemsService,
         VersionService,
         VulnerabilityService,
+        GoService, 
     )
 
 
@@ -40,6 +41,7 @@ class ServiceContainer:
     nuget_service: Any = None
     pypi_service: Any = None
     rubygems_service: Any = None
+    go_service: Any = None 
     package_service: Any = None
     version_service: Any = None
     vulnerability_service: Any = None
@@ -128,6 +130,12 @@ class ServiceContainer:
             from src.services import RubyGemsService
             self.rubygems_service = RubyGemsService()
         return self.rubygems_service
+
+    def get_go_service(self) -> GoService:
+        if self.go_service is None:
+            from src.services.apis.go_service import GoService
+            self.go_service = GoService()
+        return self.go_service
 
     def get_package_service(self) -> PackageService:
         if self.package_service is None:
@@ -219,6 +227,8 @@ def get_pypi_service() -> PyPIService:
 def get_rubygems_service() -> RubyGemsService:
     return ServiceContainer().get_rubygems_service()
 
+def get_go_service() -> GoService:
+    return ServiceContainer().get_go_service()
 
 def get_package_service() -> PackageService:
     return ServiceContainer().get_package_service()

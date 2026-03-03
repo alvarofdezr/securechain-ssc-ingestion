@@ -3,6 +3,8 @@ from dagster import DefaultScheduleStatus, ScheduleDefinition
 from src.dagster_app.assets import (
     cargo_package_ingestion,
     cargo_packages_updates,
+    go_package_ingestion,
+    go_packages_updates,
     maven_package_ingestion,
     maven_packages_updates,
     npm_package_ingestion,
@@ -17,7 +19,7 @@ from src.dagster_app.assets import (
 )
 
 # ============================================================================
-# INGESTION SCHEDULES (Weekly - Sundays at 2-7 AM, STOPPED by default)
+# INGESTION SCHEDULES (Weekly - Sundays at 2-8 AM, STOPPED by default)
 # ============================================================================
 
 pypi_ingestion_schedule = ScheduleDefinition(
@@ -68,8 +70,16 @@ rubygems_ingestion_schedule = ScheduleDefinition(
     description="Ingests new RubyGems packages weekly on Sundays at 7:00 AM",
 )
 
+go_ingestion_schedule = ScheduleDefinition(
+    name="go_weekly_ingestion",
+    target=go_package_ingestion,
+    cron_schedule="0 8 * * 0",
+    default_status=DefaultScheduleStatus.STOPPED,
+    description="Ingests new Go packages weekly on Sundays at 8:00 AM",
+)
+
 # ============================================================================
-# UPDATE SCHEDULES (Daily at 10AM-8PM every 2 hours, RUNNING by default)
+# UPDATE SCHEDULES (Daily at 10AM-9PM every 2 hours, RUNNING by default)
 # ============================================================================
 
 pypi_schedule = ScheduleDefinition(
@@ -120,6 +130,14 @@ nuget_schedule = ScheduleDefinition(
     description="Updates NuGet packages daily at 8:00 PM",
 )
 
+go_update_schedule = ScheduleDefinition(
+    name="go_daily_update",
+    target=go_packages_updates,
+    cron_schedule="0 21 * * *",
+    default_status=DefaultScheduleStatus.RUNNING,
+    description="Updates Go packages daily at 9:00 PM",
+)
+
 # ============================================================================
 # REDIS QUEUE PROCESSOR (Every 5 minutes, RUNNING by default)
 # ============================================================================
@@ -140,6 +158,7 @@ all_schedules = [
     nuget_ingestion_schedule,
     cargo_ingestion_schedule,
     rubygems_ingestion_schedule,
+    go_ingestion_schedule,
     # Update schedules
     pypi_schedule,
     npm_schedule,
@@ -147,6 +166,7 @@ all_schedules = [
     cargo_schedule,
     rubygems_schedule,
     nuget_schedule,
+    go_update_schedule,
     # Redis queue processor
     redis_queue_schedule,
 ]

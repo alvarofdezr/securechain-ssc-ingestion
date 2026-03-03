@@ -15,6 +15,7 @@ from src.dependencies import (
     get_package_service,
     get_pypi_service,
     get_rubygems_service,
+    get_go_service, #added for Go, using a common service getter pattern
     get_version_service,
 )
 from src.logger import logger
@@ -25,6 +26,7 @@ from src.processes.extractors import (
     NuGetPackageExtractor,
     PyPIPackageExtractor,
     RubyGemsPackageExtractor,
+    GoPackageExtractor, 
 )
 from src.schemas import (
     CargoPackageSchema,
@@ -34,6 +36,7 @@ from src.schemas import (
     PackageMessageSchema,
     PyPIPackageSchema,
     RubyGemsPackageSchema,
+    GoPackageSchema, 
 )
 from src.utils import RedisQueue
 
@@ -58,6 +61,7 @@ def redis_queue_processor(
         nuget_svc = get_nuget_service()
         cargo_svc = get_cargo_service()
         rubygems_svc = get_rubygems_service()
+        go_svc = get_go_service() #
 
         total_processed = 0
         successful = 0
@@ -111,6 +115,12 @@ def redis_queue_processor(
                     "schema_class": RubyGemsPackageSchema,
                     "service": rubygems_svc,
                     "service_param": "rubygems_service",
+                },
+                "GoPackage": {
+                    "extractor_class": GoPackageExtractor,
+                    "schema_class": GoPackageSchema,
+                    "service": go_svc,
+                    "service_param": "go_service",
                 },
             }
 

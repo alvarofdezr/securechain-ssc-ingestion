@@ -1,5 +1,6 @@
 from .apis import (
     CargoService,
+    GoService,
     MavenService,
     NPMService,
     NuGetService,
@@ -11,6 +12,7 @@ from .vulnerability import VulnerabilityService
 
 __all__ = [
     "CargoService",
+    "GoService",
     "MavenService",
     "NPMService",
     "NuGetService",

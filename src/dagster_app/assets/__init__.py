@@ -24,6 +24,11 @@ from src.dagster_app.assets.rubygems_assets import (
     rubygems_packages_updates,
 )
 
+from src.dagster_app.assets.go_assets import (
+    go_package_ingestion,
+    go_packages_updates,
+) #added for Go 
+
 __all__ = [
     "cargo_package_ingestion",
     "cargo_packages_updates",
@@ -38,4 +43,6 @@ __all__ = [
     "redis_queue_processor",
     "rubygems_package_ingestion",
     "rubygems_packages_updates",
+    "go_package_ingestion", #added for Go
+    "go_packages_updates", #added for Go
 ]
