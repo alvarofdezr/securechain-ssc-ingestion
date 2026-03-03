@@ -1,5 +1,3 @@
-
-import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -11,13 +9,25 @@ from src.services.apis.go_service import GoService
 @pytest.fixture
 def go_service():
     """Provides a GoService instance with a mocked cache."""
-    with patch("src.services.apis.go_service.get_cache_manager") as mock_get_cache:
+    with patch("src.services.apis.go_service.get_cache_manager") as mock_get_cache, \
+         patch("src.services.apis.go_service.get_orderer") as mock_get_orderer:
         mock_cache = MagicMock()
         mock_cache.get_cache = AsyncMock(return_value=None)
         mock_cache.set_cache = AsyncMock()
         mock_get_cache.return_value = mock_cache
+
+        mock_orderer = MagicMock()
+        mock_get_orderer.return_value = mock_orderer
+
         service = GoService()
         return service
+
+
+def _mock_session_manager(mock_session):
+    """Helper that returns a correctly patched session manager context."""
+    mock_session_manager = MagicMock()
+    mock_session_manager.get_session = AsyncMock(return_value=mock_session)
+    return mock_session_manager
 
 
 @pytest.mark.asyncio
@@ -29,14 +39,16 @@ async def test_fetch_all_package_names_returns_parsed_paths(go_service: GoServic
     mock_session = MagicMock(spec=ClientSession)
     mock_response = MagicMock()
     mock_response.text = AsyncMock(
-        return_value='{"Path": "github.com/a/a"}
-{"Path": "github.com/b/b"}
-{"Path": "github.com/c/c"}'
+        return_value=(
+            '{"Path": "github.com/a/a"}\n'
+            '{"Path": "github.com/b/b"}\n'
+            '{"Path": "github.com/c/c"}'
+        )
     )
     mock_session.get.return_value.__aenter__.return_value = mock_response
 
     with patch("src.services.apis.go_service.get_session_manager") as mock_get_session:
-        mock_get_session.return_value.get_session.return_value = mock_session
+        mock_get_session.return_value = _mock_session_manager(mock_session)
         result = await go_service.fetch_all_package_names()
         assert set(result) == {"github.com/a/a", "github.com/b/b", "github.com/c/c"}
 
@@ -50,14 +62,16 @@ async def test_fetch_all_package_names_handles_malformed_lines(go_service: GoSer
     mock_session = MagicMock(spec=ClientSession)
     mock_response = MagicMock()
     mock_response.text = AsyncMock(
-        return_value='{"Path": "github.com/a/a"}
-not-json
-{"Path": "github.com/c/c"}'
+        return_value=(
+            '{"Path": "github.com/a/a"}\n'
+            'not-json\n'
+            '{"Path": "github.com/c/c"}'
+        )
     )
     mock_session.get.return_value.__aenter__.return_value = mock_response
 
     with patch("src.services.apis.go_service.get_session_manager") as mock_get_session:
-        mock_get_session.return_value.get_session.return_value = mock_session
+        mock_get_session.return_value = _mock_session_manager(mock_session)
         result = await go_service.fetch_all_package_names()
         assert set(result) == {"github.com/a/a", "github.com/c/c"}
 
@@ -71,13 +85,11 @@ async def test_fetch_versions_list_returns_versions(go_service: GoService):
     mock_session = MagicMock(spec=ClientSession)
     mock_response = MagicMock()
     mock_response.status = 200
-    mock_response.text = AsyncMock(return_value="v1.0.0
-v1.1.0
-v1.2.0")
+    mock_response.text = AsyncMock(return_value="v1.0.0\nv1.1.0\nv1.2.0")
     mock_session.get.return_value.__aenter__.return_value = mock_response
 
     with patch("src.services.apis.go_service.get_session_manager") as mock_get_session:
-        mock_get_session.return_value.get_session.return_value = mock_session
+        mock_get_session.return_value = _mock_session_manager(mock_session)
         result = await go_service.fetch_versions_list("test/pkg")
         assert result == ["v1.0.0", "v1.1.0", "v1.2.0"]
 
@@ -94,7 +106,7 @@ async def test_fetch_versions_list_returns_empty_on_404(go_service: GoService):
     mock_session.get.return_value.__aenter__.return_value = mock_response
 
     with patch("src.services.apis.go_service.get_session_manager") as mock_get_session:
-        mock_get_session.return_value.get_session.return_value = mock_session
+        mock_get_session.return_value = _mock_session_manager(mock_session)
         result = await go_service.fetch_versions_list("test/pkg")
         assert result == []
 
@@ -142,14 +154,14 @@ def test_parse_go_mod_block_form(go_service: GoService):
     """
     Ensures that 'require' directives within a block are parsed correctly.
     """
-    content = """
-    module my/mod
-    go 1.16
-    require (
-        github.com/a/a v1.0.0
-        github.com/b/b v1.2.3
+    content = (
+        "module my/mod\n"
+        "go 1.16\n"
+        "require (\n"
+        "    github.com/a/a v1.0.0\n"
+        "    github.com/b/b v1.2.3\n"
+        ")\n"
     )
-    """
     deps = go_service._parse_go_mod(content)
     assert deps == {"github.com/a/a": "v1.0.0", "github.com/b/b": "v1.2.3"}
 
@@ -158,12 +170,12 @@ def test_parse_go_mod_single_line_form(go_service: GoService):
     """
     Tests parsing of single-line 'require' directives.
     """
-    content = """
-    module my/mod
-    go 1.16
-    require github.com/a/a v1.0.0
-    require github.com/b/b v1.2.3
-    """
+    content = (
+        "module my/mod\n"
+        "go 1.16\n"
+        "require github.com/a/a v1.0.0\n"
+        "require github.com/b/b v1.2.3\n"
+    )
     deps = go_service._parse_go_mod(content)
     assert deps == {"github.com/a/a": "v1.0.0", "github.com/b/b": "v1.2.3"}
 
@@ -173,7 +185,6 @@ def test_parse_go_mod_strips_indirect_comments(go_service: GoService):
     Verifies that '// indirect' comments are stripped from version strings
     to avoid corrupting the version identifier.
     """
-    content = "require github.com/a/a v1.0.0 // indirect"
+    content = "require github.com/a/a v1.0.0 // indirect\n"
     deps = go_service._parse_go_mod(content)
     assert deps == {"github.com/a/a": "v1.0.0"}
-    

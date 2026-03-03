@@ -1,4 +1,3 @@
-
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -17,6 +16,8 @@ def go_service_mock():
             {"name": "v1.1.0", "serial_number": 2},
         ]
     )
+    mock.get_import_names = AsyncMock(return_value=["test/pkg"])
+    mock.get_repo_url = MagicMock(return_value="https://github.com/test/pkg")
     mock.get_package_requirements = AsyncMock(
         return_value={
             "known/pkg": "v1.0.0",
@@ -30,25 +31,29 @@ def go_service_mock():
 def package_service_mock():
     """Mocks the PackageService for extractor tests."""
     mock = MagicMock()
-    mock.create_package_and_versions = AsyncMock()
+    mock.create_package_and_versions = AsyncMock(return_value=[])
     mock.read_package_by_name = AsyncMock(
-        side_effect=lambda type, name: {"name": name} if name == "known/pkg" else None
+        side_effect=lambda type, name: {"name": name, "id": "some-id"} if name == "known/pkg" else None
     )
-    mock.create_package = AsyncMock()
     mock.relate_packages = AsyncMock()
+    mock.update_package_moment = AsyncMock()
     return mock
 
 
 @pytest.fixture
 def version_service_mock():
     """Mocks the VersionService for extractor tests."""
-    return MagicMock()
+    mock = MagicMock()
+    mock.update_versions_serial_number = AsyncMock()
+    return mock
 
 
 @pytest.fixture
 def attributor_mock():
     """Mocks the Attributor for extractor tests."""
-    return MagicMock()
+    mock = MagicMock()
+    mock.attribute_vulnerabilities = AsyncMock(side_effect=lambda name, v: v)
+    return mock
 
 
 @pytest.fixture
@@ -76,7 +81,7 @@ async def test_run_calls_create_package(go_extractor, package_service_mock):
     await go_extractor.run()
     package_service_mock.create_package_and_versions.assert_called_once()
     call_args = package_service_mock.create_package_and_versions.call_args[0]
-    assert call_args[1] == "GoPackage"
+    assert call_args[0] == "GoPackage"
 
 
 @pytest.mark.asyncio
@@ -99,20 +104,20 @@ async def test_generate_packages_relates_known_packages(
     """
     Tests the dependency resolution logic. Verifies that if a dependency
     already exists in the graph, it is related to the parent package.
-    If it does not exist, it is created.
+    If it does not exist, it is created (via create_package_and_versions).
     """
-    await go_extractor._GoPackageExtractor__generate_packages("v1.1.0")
+    await go_extractor.generate_packages(
+        {"known/pkg": "v1.0.0", "unknown/pkg": "v2.0.0"},
+        parent_id="some-id",
+        parent_version_name="v1.1.0",
+    )
 
-    # Check that we tried to find both packages
     assert package_service_mock.read_package_by_name.call_count == 2
 
-    # Check that the known package was related, not created
     package_service_mock.relate_packages.assert_called_once()
-    related_pkg = package_service_mock.relate_packages.call_args[0][2]
-    assert related_pkg["name"] == "known/pkg"
+    related_pkgs = package_service_mock.relate_packages.call_args[0][1]
+    assert any(p["name"] == "known/pkg" for p in related_pkgs)
 
-    # Check that the unknown package was created
-    package_service_mock.create_package.assert_called_once()
-    created_pkg_schema = package_service_mock.create_package.call_args[0][0]
-    assert created_pkg_schema.name == "unknown/pkg"
-
+    package_service_mock.create_package_and_versions.assert_called_once()
+    call_args = package_service_mock.create_package_and_versions.call_args[0]
+    assert call_args[0] == "GoPackage"

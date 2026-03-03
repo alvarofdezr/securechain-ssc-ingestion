@@ -449,7 +449,6 @@ class GoService:
         """
         dependencies: dict[str, str] = {}
 
-        # Block form: require ( ... )
         block_pattern = r"require\s*\((.*?)\)"
         for block in re.finditer(block_pattern, content, re.DOTALL):
             for line in block.group(1).splitlines():
@@ -462,9 +461,9 @@ class GoService:
                 if len(parts) >= 2:
                     dependencies[parts[0]] = parts[1]
 
-        # Single-line form: require github.com/foo v1.0
-        single_pattern = r"^require\s+(\S+)\s+(\S+)"
+        single_pattern = r"^\s*require\s+([^(\s]\S*)\s+(\S+)"
         for match in re.finditer(single_pattern, content, re.MULTILINE):
-            dependencies[match.group(1)] = match.group(2)
+            version = match.group(2).split("//")[0].strip()
+            dependencies[match.group(1)] = version
 
         return dependencies
