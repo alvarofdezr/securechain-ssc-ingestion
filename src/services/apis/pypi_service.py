@@ -76,7 +76,9 @@ class PyPIService:
                 return {}
         return {}
 
-    async def fetch_package_version_metadata(self, package_name: str, version_name: str) -> dict[str, Any]:
+    async def fetch_package_version_metadata(
+        self, package_name: str, version_name: str
+    ) -> dict[str, Any]:
         cache_key = f"{package_name}:{version_name}"
         cached = await self.cache.get_cache(cache_key)
         if cached:
@@ -146,8 +148,13 @@ class PyPIService:
                 python_version = any(
                     sub in data[1]
                     for sub in [
-                        '== "3.10"', '<= "3.10"', '>= "3.10"',
-                        '>= "3"', '<= "3"', '>= "2', '> "2'
+                        '== "3.10"',
+                        '<= "3.10"',
+                        '>= "3.10"',
+                        '>= "3"',
+                        '<= "3"',
+                        '>= "2',
+                        '> "2',
                     ]
                 )
                 if "python_version" in data[1] and not python_version:
@@ -155,12 +162,24 @@ class PyPIService:
 
             if "[" in data[0]:
                 pos_1 = self.pypi_constraints_parser.get_first_position(data[0], ["["])
-                pos_2 = self.pypi_constraints_parser.get_first_position(data[0], ["]"]) + 1
+                pos_2 = (
+                    self.pypi_constraints_parser.get_first_position(data[0], ["]"]) + 1
+                )
                 data[0] = data[0][:pos_1] + data[0][pos_2:]
 
-            data = data[0].replace("(", "").replace(")", "").replace(" ", "").replace("'", "")
-            pos = self.pypi_constraints_parser.get_first_position(data, ["<", ">", "=", "!", "~"])
-            requirements[data[:pos].lower()] = self.pypi_constraints_parser.parse(data[pos:])
+            data = (
+                data[0]
+                .replace("(", "")
+                .replace(")", "")
+                .replace(" ", "")
+                .replace("'", "")
+            )
+            pos = self.pypi_constraints_parser.get_first_position(
+                data, ["<", ">", "=", "!", "~"]
+            )
+            requirements[data[:pos].lower()] = self.pypi_constraints_parser.parse(
+                data[pos:]
+            )
 
         return requirements
 
@@ -168,7 +187,9 @@ class PyPIService:
         cache_key = f"import_names:{package_name}:{version}"
         cached = await self.cache.get_cache(cache_key)
         if cached:
-            logger.info(f"PyPI - import_names para {package_name}@{version} obtenidos de cache")
+            logger.info(
+                f"PyPI - import_names para {package_name}@{version} obtenidos de cache"
+            )
             return cached
 
         try:
@@ -176,7 +197,9 @@ class PyPIService:
 
             metadata = await self.fetch_package_version_metadata(package_name, version)
             if not metadata:
-                logger.warning(f"PyPI - No se encontró metadata para {package_name}@{version}")
+                logger.warning(
+                    f"PyPI - No se encontró metadata para {package_name}@{version}"
+                )
                 return []
 
             urls = metadata.get("urls", [])
@@ -193,14 +216,18 @@ class PyPIService:
                     file_type = "sdist"
 
             if not download_url:
-                logger.warning(f"PyPI - No se encontró archivo descargable para {package_name}@{version}")
+                logger.warning(
+                    f"PyPI - No se encontró archivo descargable para {package_name}@{version}"
+                )
                 return []
 
             session_manager = get_session_manager()
             session = await session_manager.get_session()
             async with session.get(download_url, timeout=get_default_timeout()) as resp:
                 if resp.status != 200:
-                    logger.warning(f"PyPI - No se pudo descargar {package_name}@{version}: HTTP {resp.status}")
+                    logger.warning(
+                        f"PyPI - No se pudo descargar {package_name}@{version}: HTTP {resp.status}"
+                    )
                     return []
 
                 package_bytes = await resp.read()
@@ -211,9 +238,13 @@ class PyPIService:
 
             if import_names:
                 await self.cache.set_cache(cache_key, import_names, ttl=604800)
-                logger.info(f"PyPI - {len(import_names)} import_names extraídos de {package_name}@{version}")
+                logger.info(
+                    f"PyPI - {len(import_names)} import_names extraídos de {package_name}@{version}"
+                )
             else:
-                logger.warning(f"PyPI - No se encontraron import_names en {package_name}@{version}")
+                logger.warning(
+                    f"PyPI - No se encontraron import_names en {package_name}@{version}"
+                )
 
             return import_names
 
@@ -221,10 +252,14 @@ class PyPIService:
             logger.error(f"PyPI - Timeout al descargar {package_name}@{version}")
             return []
         except Exception as e:
-            logger.error(f"PyPI - Error extrayendo import_names de {package_name}@{version}: {e}")
+            logger.error(
+                f"PyPI - Error extrayendo import_names de {package_name}@{version}: {e}"
+            )
             return []
 
-    def extract_from_package(self, package_bytes: bytes, file_type: str | None, package_name: str) -> list[str]:
+    def extract_from_package(
+        self, package_bytes: bytes, file_type: str | None, package_name: str
+    ) -> list[str]:
         import_names = set()
 
         try:
@@ -233,7 +268,16 @@ class PyPIService:
                     for file_info in whl_zip.namelist():
                         if file_info.endswith(".py") and "/" in file_info:
                             parts = file_info.split("/")
-                            if any(skip in parts for skip in ["test", "tests", "example", "examples", "docs"]):
+                            if any(
+                                skip in parts
+                                for skip in [
+                                    "test",
+                                    "tests",
+                                    "example",
+                                    "examples",
+                                    "docs",
+                                ]
+                            ):
                                 continue
 
                             if len(parts) >= 2:
@@ -244,11 +288,22 @@ class PyPIService:
 
             else:
                 try:
-                    with open_tarfile(fileobj=BytesIO(package_bytes), mode="r:gz") as tar:
+                    with open_tarfile(
+                        fileobj=BytesIO(package_bytes), mode="r:gz"
+                    ) as tar:
                         for member in tar.getmembers():
                             if member.name.endswith(".py") and "/" in member.name:
                                 parts = member.name.split("/")
-                                if any(skip in parts for skip in ["test", "tests", "example", "examples", "docs"]):
+                                if any(
+                                    skip in parts
+                                    for skip in [
+                                        "test",
+                                        "tests",
+                                        "example",
+                                        "examples",
+                                        "docs",
+                                    ]
+                                ):
                                     continue
 
                                 if len(parts) >= 3 and parts[-1] == "__init__.py":
@@ -259,7 +314,16 @@ class PyPIService:
                             for file_info in sdist_zip.namelist():
                                 if file_info.endswith(".py") and "/" in file_info:
                                     parts = file_info.split("/")
-                                    if any(skip in parts for skip in ["test", "tests", "example", "examples", "docs"]):
+                                    if any(
+                                        skip in parts
+                                        for skip in [
+                                            "test",
+                                            "tests",
+                                            "example",
+                                            "examples",
+                                            "docs",
+                                        ]
+                                    ):
                                         continue
 
                                     if len(parts) >= 3 and parts[-1] == "__init__.py":

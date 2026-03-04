@@ -10,7 +10,9 @@ class RedisQueue:
     def __init__(self, host: str, port: int, db: int = 0):
         self.r = Redis(host=host, port=port, db=db, decode_responses=True)
         try:
-            self.r.xgroup_create(settings.REDIS_STREAM, settings.REDIS_GROUP, id="0-0", mkstream=True)
+            self.r.xgroup_create(
+                settings.REDIS_STREAM, settings.REDIS_GROUP, id="0-0", mkstream=True
+            )
         except ResponseError as e:
             if "BUSYGROUP" not in str(e):
                 raise
@@ -19,13 +21,15 @@ class RedisQueue:
     def from_env(cls) -> RedisQueue:
         return cls(settings.REDIS_HOST, settings.REDIS_PORT, settings.REDIS_DB)
 
-    def read_batch(self, count: int = 20, block_ms: int | None = None) -> list[tuple[str, str]]:
+    def read_batch(
+        self, count: int = 20, block_ms: int | None = None
+    ) -> list[tuple[str, str]]:
         resp: list | None = self.r.xreadgroup(  # type: ignore[assignment]
             settings.REDIS_GROUP,
             settings.REDIS_CONSUMER,
             {settings.REDIS_STREAM: ">"},
             count=count,
-            block=block_ms
+            block=block_ms,
         )
         if not resp:
             return []

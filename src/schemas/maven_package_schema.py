@@ -8,7 +8,9 @@ class MavenPackageSchema(BaseModel):
 
     group_id: str = Field(..., description="Group ID of the Maven package")
     artifact_id: str = Field(..., description="Artifact ID of the Maven package")
-    name: str = Field(..., description="Full name of the Maven package (group_id:artifact_id)")
+    name: str = Field(
+        ..., description="Full name of the Maven package (group_id:artifact_id)"
+    )
     vendor: str = Field(default="n/a", description="Vendor source")
     repository_url: str = Field(
         default="n/a", description="Repository URL (GitHub/GitLab/Bitbucket)"
@@ -17,7 +19,8 @@ class MavenPackageSchema(BaseModel):
         default_factory=datetime.now, description="Timestamp of the last update"
     )
     import_names: list[str] = Field(
-        default_factory=list, description="List of Java package names extracted from the JAR"
+        default_factory=list,
+        description="List of Java package names extracted from the JAR",
     )
 
     def to_dict(self) -> dict:

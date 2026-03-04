@@ -28,21 +28,29 @@ class MavenVersionUpdater:
 
         group_id, artifact_id = package_name.split(":", 1)
 
-        metadata = await self.maven_service.fetch_package_metadata(group_id, artifact_id)
+        metadata = await self.maven_service.fetch_package_metadata(
+            group_id, artifact_id
+        )
         versions = await self.maven_service.get_versions(metadata)
         repository_url = await self.maven_service.get_repo_url(metadata)
         vendor = repository_url.split("/")[-2] if repository_url else None
 
-        count = await self.version_service.count_number_of_versions_by_package("MavenPackage", package_name)
+        count = await self.version_service.count_number_of_versions_by_package(
+            "MavenPackage", package_name
+        )
         if count < len(versions):
             new_attributed_versions: list[dict[str, Any]] = []
 
-            actual_versions = await self.version_service.read_versions_names_by_package("MavenPackage", package_name)
+            actual_versions = await self.version_service.read_versions_names_by_package(
+                "MavenPackage", package_name
+            )
 
             for index, version in enumerate(versions):
                 if version.get("name", "") not in actual_versions:
                     new_attributed_versions.append(
-                        await self.attributor.attribute_vulnerabilities(package_name, version)
+                        await self.attributor.attribute_vulnerabilities(
+                            package_name, version
+                        )
                     )
                     del versions[index]
 
@@ -52,7 +60,9 @@ class MavenVersionUpdater:
                 new_attributed_versions,
             )
 
-            await self.version_service.update_versions_serial_number("MavenPackage", package_name, versions)
+            await self.version_service.update_versions_serial_number(
+                "MavenPackage", package_name, versions
+            )
 
             for version in created_versions:
                 if not vendor:

@@ -49,11 +49,7 @@ def expand_index():
     EXPANDED_DIR.mkdir(parents=True, exist_ok=True)
 
     log("Expanding Lucene index...")
-    cmd = [
-        "java", "-jar", str(CLI_JAR),
-        "-u", str(INDEX_GZ),
-        "-d", str(EXPANDED_DIR)
-    ]
+    cmd = ["java", "-jar", str(CLI_JAR), "-u", str(INDEX_GZ), "-d", str(EXPANDED_DIR)]
 
     try:
         run(cmd, check=True, capture_output=True, text=True)
@@ -65,7 +61,7 @@ def expand_index():
 def extract_packages():
     log("Initializing JVM (PyLucene)...")
     try:
-        initVM(vmargs=['-Djava.awt.headless=true'])
+        initVM(vmargs=["-Djava.awt.headless=true"])
     except Exception as e:
         log(f"Error initializing JVM: {e}")
         raise
@@ -93,7 +89,9 @@ def extract_packages():
 
             if i > 0 and i % 100000 == 0:
                 progress = (i / max_docs) * 100
-                log(f"Progress: {i:,}/{max_docs:,} docs ({progress:.1f}%) - {len(packages):,} unique packages")
+                log(
+                    f"Progress: {i:,}/{max_docs:,} docs ({progress:.1f}%) - {len(packages):,} unique packages"
+                )
         except Exception:
             continue
 

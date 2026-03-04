@@ -40,9 +40,13 @@ class NuGetService:
         try:
             logger.info("NuGet - Fetching all packages using catalog")
 
-            async with session.get(self.INDEX_URL, timeout=get_medium_timeout()) as resp:
+            async with session.get(
+                self.INDEX_URL, timeout=get_medium_timeout()
+            ) as resp:
                 if resp.status != 200:
-                    logger.error(f"NuGet - Error fetching catalog index: HTTP {resp.status}")
+                    logger.error(
+                        f"NuGet - Error fetching catalog index: HTTP {resp.status}"
+                    )
                     return []
 
                 catalog_index = await resp.json()
@@ -59,7 +63,9 @@ class NuGetService:
 
                 async with semaphore:
                     try:
-                        async with session.get(page_url, timeout=get_long_timeout()) as resp:
+                        async with session.get(
+                            page_url, timeout=get_long_timeout()
+                        ) as resp:
                             if resp.status != 200:
                                 return
 
@@ -86,15 +92,15 @@ class NuGetService:
                         logger.debug(f"NuGet - Error fetching catalog page: {e}")
 
             tasks = [
-                fetch_catalog_page(page.get("@id"))
-                for page in pages
-                if page.get("@id")
+                fetch_catalog_page(page.get("@id")) for page in pages if page.get("@id")
             ]
 
             await gather(*tasks, return_exceptions=True)
 
             package_names = sorted(all_packages)
-            logger.info(f"NuGet - Successfully fetched {len(package_names):,} unique packages")
+            logger.info(
+                f"NuGet - Successfully fetched {len(package_names):,} unique packages"
+            )
 
             await self.cache.set_cache("all_nuget_packages", package_names, ttl=3600)
             return package_names
@@ -148,12 +154,16 @@ class NuGetService:
                 return {}
         return {}
 
-    async def extract_raw_versions_and_requirements(self, metadata: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    async def extract_raw_versions_and_requirements(
+        self, metadata: dict[str, Any]
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         raw_versions = []
         requirements = []
 
         for item in metadata.get("items", []):
-            subitems = item.get("items") or await self.fetch_page_versions(item.get("@id", ""))
+            subitems = item.get("items") or await self.fetch_page_versions(
+                item.get("@id", "")
+            )
             for version_item in subitems:
                 catalog_entry = version_item.get("catalogEntry", {})
                 name = catalog_entry.get("version")
@@ -172,10 +182,14 @@ class NuGetService:
 
         return raw_versions, requirements
 
-    async def get_versions_and_requirements(self, metadata: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    async def get_versions_and_requirements(
+        self, metadata: dict[str, Any]
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         if not metadata:
             return [], []
-        raw_versions, requirements = await self.extract_raw_versions_and_requirements(metadata)
+        raw_versions, requirements = await self.extract_raw_versions_and_requirements(
+            metadata
+        )
         versions = self.orderer.order_versions(raw_versions)
         return versions, requirements
 
@@ -184,7 +198,9 @@ class NuGetService:
             return None
 
         for item in metadata.get("items", []):
-            subitems = item.get("items") or await self.fetch_page_versions(item.get("@id", ""))
+            subitems = item.get("items") or await self.fetch_page_versions(
+                item.get("@id", "")
+            )
             for version_item in subitems:
                 catalog_entry = version_item.get("catalogEntry", {})
                 raw_url = catalog_entry.get("repositoryUrl")
@@ -200,7 +216,9 @@ class NuGetService:
         cache_key = f"import_names:{package_name}:{version}"
         cached = await self.cache.get_cache(cache_key)
         if cached:
-            logger.info(f"NuGet - import_names para {package_name}@{version} obtenidos de cache")
+            logger.info(
+                f"NuGet - import_names para {package_name}@{version} obtenidos de cache"
+            )
             return cached
 
         try:
@@ -208,12 +226,15 @@ class NuGetService:
 
             url = f"{self.DOWNLOAD_URL}/{package_name}/{version}"
             from src.dependencies import get_session_manager
+
             session_manager = get_session_manager()
             session = await session_manager.get_session()
 
             async with session.get(url, timeout=get_default_timeout()) as resp:
                 if resp.status != 200:
-                    logger.warning(f"NuGet - No se pudo descargar {package_name}@{version}: HTTP {resp.status}")
+                    logger.warning(
+                        f"NuGet - No se pudo descargar {package_name}@{version}: HTTP {resp.status}"
+                    )
                     return []
 
                 nupkg_bytes = await resp.read()
@@ -224,9 +245,13 @@ class NuGetService:
 
             if import_names:
                 await self.cache.set_cache(cache_key, import_names, ttl=604800)
-                logger.info(f"NuGet - {len(import_names)} import_names extraídos de {package_name}@{version}")
+                logger.info(
+                    f"NuGet - {len(import_names)} import_names extraídos de {package_name}@{version}"
+                )
             else:
-                logger.warning(f"NuGet - No se encontraron import_names en {package_name}@{version}")
+                logger.warning(
+                    f"NuGet - No se encontraron import_names en {package_name}@{version}"
+                )
 
             return import_names
 
@@ -234,7 +259,9 @@ class NuGetService:
             logger.error(f"NuGet - Timeout al descargar {package_name}@{version}")
             return []
         except Exception as e:
-            logger.error(f"NuGet - Error extrayendo import_names de {package_name}@{version}: {e}")
+            logger.error(
+                f"NuGet - Error extrayendo import_names de {package_name}@{version}: {e}"
+            )
             return []
 
     def extract_from_nupkg(self, nupkg_bytes: bytes, package_name: str) -> list[str]:
@@ -245,7 +272,12 @@ class NuGetService:
                 for file_info in nupkg_zip.namelist():
                     if file_info.startswith("lib/") and file_info.endswith(".dll"):
                         dll_name = file_info.split("/")[-1][:-4]
-                        if dll_name in ["System", "Microsoft.CSharp", "netstandard", "mscorlib"]:
+                        if dll_name in [
+                            "System",
+                            "Microsoft.CSharp",
+                            "netstandard",
+                            "mscorlib",
+                        ]:
                             continue
                         import_names.add(dll_name)
 

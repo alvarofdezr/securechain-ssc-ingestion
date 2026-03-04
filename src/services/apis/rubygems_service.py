@@ -37,13 +37,19 @@ class RubyGemsService:
         session = await session_manager.get_session()
 
         try:
-            async with session.get(self.GEMS_NAMES_URL, timeout=get_long_timeout()) as resp:
+            async with session.get(
+                self.GEMS_NAMES_URL, timeout=get_long_timeout()
+            ) as resp:
                 if resp.status != 200:
-                    logger.error(f"RubyGems - Failed to fetch gem list: status {resp.status}")
+                    logger.error(
+                        f"RubyGems - Failed to fetch gem list: status {resp.status}"
+                    )
                     return []
 
                 text = await resp.text()
-                gem_names = [line.strip() for line in text.strip().split('\n') if line.strip()]
+                gem_names = [
+                    line.strip() for line in text.strip().split("\n") if line.strip()
+                ]
 
                 logger.info(f"RubyGems - Fetched {len(gem_names)} gems")
                 await self.cache.set_cache("all_rubygems_packages", gem_names, ttl=3600)
@@ -74,7 +80,9 @@ class RubyGemsService:
                 return {}
         return {}
 
-    async def fetch_package_version_metadata(self, package_name: str, version_name: str) -> dict[str, Any]:
+    async def fetch_package_version_metadata(
+        self, package_name: str, version_name: str
+    ) -> dict[str, Any]:
         cache_key = f"{package_name}:{version_name}"
         cached = await self.cache.get_cache(cache_key)
         if cached:
@@ -96,7 +104,9 @@ class RubyGemsService:
                 return {}
         return {}
 
-    def extract_raw_versions(self, metadata: dict[str, Any] | list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def extract_raw_versions(
+        self, metadata: dict[str, Any] | list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
         raw_versions = []
         if isinstance(metadata, list):
             for version_data in metadata:
@@ -106,22 +116,28 @@ class RubyGemsService:
                     raw_versions.append({"name": version, "release_date": created_at})
         return raw_versions
 
-    async def get_versions(self, metadata: dict[str, Any] | list[dict[str, Any]]) -> list[dict[str, Any]]:
+    async def get_versions(
+        self, metadata: dict[str, Any] | list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
         if not metadata:
             return []
         raw = self.extract_raw_versions(metadata)
         return self.orderer.order_versions(raw)
 
-    def get_repo_url(self, metadata: dict[str, Any] | list[dict[str, Any]]) -> str | None:
+    def get_repo_url(
+        self, metadata: dict[str, Any] | list[dict[str, Any]]
+    ) -> str | None:
         if not metadata:
             return None
 
         if isinstance(metadata, list):
             for version_data in metadata:
                 version_metadata: dict = version_data.get("metadata", {})
-                raw_url = (version_metadata.get("source_code_uri") or
-                          version_metadata.get("homepage_uri") or
-                          version_metadata.get("bug_tracker_uri"))
+                raw_url = (
+                    version_metadata.get("source_code_uri")
+                    or version_metadata.get("homepage_uri")
+                    or version_metadata.get("bug_tracker_uri")
+                )
 
                 if raw_url:
                     norm_url = self.repo_normalizer.normalize(raw_url)
@@ -153,7 +169,9 @@ class RubyGemsService:
         cache_key = f"import_names:{gem_name}:{version}"
         cached = await self.cache.get_cache(cache_key)
         if cached:
-            logger.info(f"RubyGems - import_names para {gem_name}@{version} obtenidos de cache")
+            logger.info(
+                f"RubyGems - import_names para {gem_name}@{version} obtenidos de cache"
+            )
             return cached
 
         try:
@@ -165,20 +183,24 @@ class RubyGemsService:
 
             async with session.get(url, timeout=get_default_timeout()) as resp:
                 if resp.status != 200:
-                    logger.warning(f"RubyGems - No se pudo descargar {gem_name}@{version}: HTTP {resp.status}")
+                    logger.warning(
+                        f"RubyGems - No se pudo descargar {gem_name}@{version}: HTTP {resp.status}"
+                    )
                     return []
 
                 gem_bytes = await resp.read()
 
-            import_names = await to_thread(
-                self.extract_from_gem, gem_bytes
-            )
+            import_names = await to_thread(self.extract_from_gem, gem_bytes)
 
             if import_names:
                 await self.cache.set_cache(cache_key, import_names, ttl=604800)
-                logger.info(f"RubyGems - {len(import_names)} import_names extraídos de {gem_name}@{version}")
+                logger.info(
+                    f"RubyGems - {len(import_names)} import_names extraídos de {gem_name}@{version}"
+                )
             else:
-                logger.warning(f"RubyGems - No se encontraron import_names en {gem_name}@{version}")
+                logger.warning(
+                    f"RubyGems - No se encontraron import_names en {gem_name}@{version}"
+                )
 
             return import_names
 
@@ -186,7 +208,9 @@ class RubyGemsService:
             logger.error(f"RubyGems - Timeout al descargar {gem_name}@{version}")
             return []
         except Exception as e:
-            logger.error(f"RubyGems - Error extrayendo import_names de {gem_name}@{version}: {e}")
+            logger.error(
+                f"RubyGems - Error extrayendo import_names de {gem_name}@{version}: {e}"
+            )
             return []
 
     def extract_from_gem(self, gem_bytes: bytes) -> list[str]:
@@ -205,12 +229,16 @@ class RubyGemsService:
                 if not data_tar_gz:
                     return []
 
-                with open_tarfile(fileobj=BytesIO(data_tar_gz), mode="r:gz") as data_tar:
+                with open_tarfile(
+                    fileobj=BytesIO(data_tar_gz), mode="r:gz"
+                ) as data_tar:
                     for member in data_tar.getmembers():
                         if not member.isfile():
                             continue
 
-                        if member.name.startswith("lib/") and member.name.endswith(".rb"):
+                        if member.name.startswith("lib/") and member.name.endswith(
+                            ".rb"
+                        ):
                             if "_spec.rb" in member.name or "_test.rb" in member.name:
                                 continue
 

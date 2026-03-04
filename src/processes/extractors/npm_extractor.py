@@ -15,7 +15,7 @@ class NPMPackageExtractor(PackageExtractor):
         version_service: VersionService,
         npm_service: NPMService,
         attributor: Attributor,
-        **kwargs
+        **kwargs,
     ):
         super().__init__(**kwargs)
         self.package = package
@@ -41,7 +41,9 @@ class NPMPackageExtractor(PackageExtractor):
         known_packages = []
         for package_name, constraints in requirement.items():
             package_name = package_name.lower()
-            package = await self.package_service.read_package_by_name("NPMPackage", package_name)
+            package = await self.package_service.read_package_by_name(
+                "NPMPackage", package_name
+            )
             if package:
                 package["parent_id"] = parent_id
                 package["parent_version_name"] = parent_version_name
@@ -61,7 +63,9 @@ class NPMPackageExtractor(PackageExtractor):
         parent_version_name: str | None = None,
     ) -> None:
         metadata = await self.npm_service.fetch_package_metadata(package_name)
-        versions, requirements = await self.npm_service.get_versions_and_requirements(metadata)
+        versions, requirements = await self.npm_service.get_versions_and_requirements(
+            metadata
+        )
         repository_url = self.npm_service.get_repo_url(metadata)
         vendor = repository_url.split("/")[-2] if repository_url else None
 
@@ -69,7 +73,8 @@ class NPMPackageExtractor(PackageExtractor):
             return
 
         attributed_versions = [
-            await self.attributor.attribute_vulnerabilities(package_name, version) for version in versions
+            await self.attributor.attribute_vulnerabilities(package_name, version)
+            for version in versions
         ]
 
         if not vendor:
@@ -79,7 +84,9 @@ class NPMPackageExtractor(PackageExtractor):
         if versions:
             latest_version = versions[-1].get("name")
             if latest_version:
-                import_names = await self.npm_service.extract_import_names(package_name, latest_version)
+                import_names = await self.npm_service.extract_import_names(
+                    package_name, latest_version
+                )
 
         pkg = NPMPackageSchema(
             name=package_name,
@@ -98,5 +105,9 @@ class NPMPackageExtractor(PackageExtractor):
             parent_version_name,
         )
 
-        for created_version, requirement in zip(created_versions, requirements, strict=False):
-            await self.generate_packages(requirement, created_version.get("id", ""), package_name)
+        for created_version, requirement in zip(
+            created_versions, requirements, strict=False
+        ):
+            await self.generate_packages(
+                requirement, created_version.get("id", ""), package_name
+            )

@@ -16,7 +16,7 @@ class MavenPackageExtractor(PackageExtractor):
         version_service: VersionService,
         maven_service: MavenService,
         attributor: Attributor,
-        **kwargs
+        **kwargs,
     ):
         super().__init__(**kwargs)
         self.package = package
@@ -47,14 +47,18 @@ class MavenPackageExtractor(PackageExtractor):
                 continue
 
             group_id, artifact_id = package_name.split(":")
-            package = await self.package_service.read_package_by_name("MavenPackage", package_name)
+            package = await self.package_service.read_package_by_name(
+                "MavenPackage", package_name
+            )
             if package:
                 package["parent_id"] = parent_id
                 package["parent_version_name"] = parent_version_name
                 package["constraints"] = constraints
                 known_packages.append(package)
             else:
-                await self.create_package(group_id, artifact_id, constraints, parent_id, parent_version_name)
+                await self.create_package(
+                    group_id, artifact_id, constraints, parent_id, parent_version_name
+                )
 
         await self.package_service.relate_packages("MavenPackage", known_packages)
 
@@ -66,7 +70,9 @@ class MavenPackageExtractor(PackageExtractor):
         parent_id: str | None = None,
         parent_version_name: str | None = None,
     ) -> None:
-        metadata = await self.maven_service.fetch_package_metadata(group_id, artifact_id)
+        metadata = await self.maven_service.fetch_package_metadata(
+            group_id, artifact_id
+        )
         versions = await self.maven_service.get_versions(metadata)
         repository_url = await self.maven_service.get_repo_url(metadata)
         vendor = repository_url.split("/")[-2] if repository_url else None
@@ -76,7 +82,8 @@ class MavenPackageExtractor(PackageExtractor):
 
         package_name = f"{group_id}:{artifact_id}"
         attributed_versions = [
-            await self.attributor.attribute_vulnerabilities(package_name, version) for version in versions
+            await self.attributor.attribute_vulnerabilities(package_name, version)
+            for version in versions
         ]
 
         if not vendor:
@@ -86,7 +93,9 @@ class MavenPackageExtractor(PackageExtractor):
         if versions:
             latest_version = versions[-1].get("name")
             if latest_version:
-                import_names = await self.maven_service.extract_import_names(group_id, artifact_id, latest_version)
+                import_names = await self.maven_service.extract_import_names(
+                    group_id, artifact_id, latest_version
+                )
 
         pkg = MavenPackageSchema(
             group_id=group_id,
@@ -110,15 +119,23 @@ class MavenPackageExtractor(PackageExtractor):
         for created_version in created_versions:
             await self.extract_packages(package_name, created_version)
 
-        await self.version_service.update_versions_serial_number("MavenPackage", package_name, versions)
+        await self.version_service.update_versions_serial_number(
+            "MavenPackage", package_name, versions
+        )
         await self.package_service.update_package_moment("MavenPackage", package_name)
 
-    async def extract_packages(self, parent_package_name: str, version: dict[str, Any]) -> None:
+    async def extract_packages(
+        self, parent_package_name: str, version: dict[str, Any]
+    ) -> None:
         if ":" not in parent_package_name:
             return
 
         group_id, artifact_id = parent_package_name.split(":", 1)
-        metadata = await self.maven_service.fetch_package_version_metadata(group_id, artifact_id, version.get("name", ""))
+        metadata = await self.maven_service.fetch_package_version_metadata(
+            group_id, artifact_id, version.get("name", "")
+        )
         requirement = self.maven_service.get_package_requirements(metadata)
         if requirement:
-            await self.generate_packages(requirement, version.get("id", ""), parent_package_name)
+            await self.generate_packages(
+                requirement, version.get("id", ""), parent_package_name
+            )

@@ -13,5 +13,5 @@ __all__ = [
     "NPMService",
     "NuGetService",
     "PyPIService",
-    "RubyGemsService"
+    "RubyGemsService",
 ]

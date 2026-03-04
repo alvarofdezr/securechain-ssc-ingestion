@@ -47,24 +47,30 @@ def maven_package_ingestion(
             total_packages = len(all_packages)
 
             logger.info(f"Maven - Found {total_packages} packages in Maven Central")
-            context.log.info(f"Maven - Found {total_packages} packages in Maven Central")
+            context.log.info(
+                f"Maven - Found {total_packages} packages in Maven Central"
+            )
 
             for idx, package_name in enumerate(all_packages, 1):
                 try:
-                    if ':' not in package_name:
+                    if ":" not in package_name:
                         continue
 
-                    group_id, artifact_id = package_name.split(':', 1)
+                    group_id, artifact_id = package_name.split(":", 1)
 
                     if not group_id or not artifact_id:
                         continue
 
-                    existing_package = await package_svc.read_package_by_name("MavenPackage", package_name)
+                    existing_package = await package_svc.read_package_by_name(
+                        "MavenPackage", package_name
+                    )
 
                     if existing_package:
                         skipped_packages += 1
                         if idx % 1000 == 0:
-                            context.log.info(f"Maven - Progress: {idx}/{total_packages} (New: {new_packages}, Skipped: {skipped_packages})")
+                            context.log.info(
+                                f"Maven - Progress: {idx}/{total_packages} (New: {new_packages}, Skipped: {skipped_packages})"
+                            )
                         continue
 
                     package_schema = MavenPackageSchema(
@@ -84,17 +90,23 @@ def maven_package_ingestion(
                     await extractor.run()
                     new_packages += 1
 
-                    context.log.info(f"Maven - Ingested new package: {package_name} ({new_packages} new packages)")
+                    context.log.info(
+                        f"Maven - Ingested new package: {package_name} ({new_packages} new packages)"
+                    )
 
                     if idx % 100 == 0:
-                        context.log.info(f"Maven - Progress: {idx}/{total_packages} (New: {new_packages}, Skipped: {skipped_packages})")
+                        context.log.info(
+                            f"Maven - Progress: {idx}/{total_packages} (New: {new_packages}, Skipped: {skipped_packages})"
+                        )
 
                 except Exception as e:
                     error_count += 1
                     logger.error(f"Maven - Error ingesting {package_name}: {e}")
                     context.log.error(f"Maven - Error ingesting {package_name}: {e}")
 
-            logger.info(f"Maven ingestion process completed. New packages: {new_packages}, Skipped: {skipped_packages}, Errors: {error_count}")
+            logger.info(
+                f"Maven ingestion process completed. New packages: {new_packages}, Skipped: {skipped_packages}, Errors: {error_count}"
+            )
 
             return {
                 "total_in_central": total_packages,
@@ -114,9 +126,10 @@ def maven_package_ingestion(
                 "errors": stats["errors"],
                 "ingestion_rate": MetadataValue.float(
                     (stats["new_packages_ingested"] / stats["total_in_central"] * 100)
-                    if stats["total_in_central"] > 0 else 0.0
+                    if stats["total_in_central"] > 0
+                    else 0.0
                 ),
-            }
+            },
         )
 
     except Exception as e:
@@ -150,23 +163,31 @@ def maven_packages_updates(
             version_count = 0
             error_count = 0
 
-            async for batch in package_svc.read_packages_in_batches("MavenPackage", batch_size=100):
+            async for batch in package_svc.read_packages_in_batches(
+                "MavenPackage", batch_size=100
+            ):
                 for pkg in batch:
                     try:
                         await updater.update_package_versions(pkg)
                         package_count += 1
 
-                        versions = await version_svc.count_number_of_versions_by_package(
-                            "MavenPackage", pkg['name']
+                        versions = (
+                            await version_svc.count_number_of_versions_by_package(
+                                "MavenPackage", pkg["name"]
+                            )
                         )
                         version_count += versions
 
-                        context.log.info(f"Maven - Successfully updated {pkg['name']} (Total: {package_count})")
+                        context.log.info(
+                            f"Maven - Successfully updated {pkg['name']} (Total: {package_count})"
+                        )
                     except Exception as e:
                         error_count += 1
                         logger.error(f"Maven - Error updating {pkg['name']}: {e}")
 
-            logger.info(f"Maven update process completed. Total packages: {package_count}")
+            logger.info(
+                f"Maven update process completed. Total packages: {package_count}"
+            )
 
             return {
                 "packages_processed": package_count,
@@ -183,10 +204,15 @@ def maven_packages_updates(
                 "total_versions": stats["total_versions"],
                 "errors": stats["errors"],
                 "success_rate": MetadataValue.float(
-                    (stats["packages_processed"] / (stats["packages_processed"] + stats["errors"]) * 100)
-                    if (stats["packages_processed"] + stats["errors"]) > 0 else 0.0
+                    (
+                        stats["packages_processed"]
+                        / (stats["packages_processed"] + stats["errors"])
+                        * 100
+                    )
+                    if (stats["packages_processed"] + stats["errors"]) > 0
+                    else 0.0
                 ),
-            }
+            },
         )
 
     except Exception as e:

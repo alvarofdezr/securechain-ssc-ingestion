@@ -6,8 +6,12 @@ class RepoNormalizer:
     def __init__(self):
         self.normalized_url: str | None = None
         self.repo_hosts: set[str] = {
-            "github.com", "gitlab.com", "bitbucket.org",
-            "www.github.com", "www.gitlab.com", "www.bitbucket.org",
+            "github.com",
+            "gitlab.com",
+            "bitbucket.org",
+            "www.github.com",
+            "www.gitlab.com",
+            "www.bitbucket.org",
         }
 
     def normalize(self, raw_url: str | None) -> str | None:
@@ -24,12 +28,15 @@ class RepoNormalizer:
         git_match = match(git_hosting_pattern, clean)
         if git_match:
             host = parsed.netloc.lower()
-            if any(platform in host for platform in ['github.com', 'gitlab.com', 'bitbucket.org']):
+            if any(
+                platform in host
+                for platform in ["github.com", "gitlab.com", "bitbucket.org"]
+            ):
                 clean = git_match.group(1)
         self.normalized_url = clean
         return clean
 
-    def normalize_git(self, raw_url:str) -> str:
+    def normalize_git(self, raw_url: str) -> str:
         u = raw_url.strip()
         if u.startswith("git+"):
             u = u[4:]
@@ -38,9 +45,9 @@ class RepoNormalizer:
             host, path = m.groups()
             u = f"https://{host}/{path}"
         if u.startswith("ssh://git@"):
-            u = "https://" + u[len("ssh://git@"):]
+            u = "https://" + u[len("ssh://git@") :]
         if u.startswith("git://"):
-            u = "https://" + u[len("git://"):]
+            u = "https://" + u[len("git://") :]
         return u
 
     def check(self) -> bool:

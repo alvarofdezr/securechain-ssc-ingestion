@@ -9,8 +9,12 @@ class Attributor:
         self.vulnerability_service = vulnerability_service
         self.impacts: list[float] = []
 
-    async def attribute_vulnerabilities(self, package_name: str, version: Any) -> dict[str, Any]:
-        vulnerabilities = await self.vulnerability_service.read_vulnerabilities_by_package_and_version(package_name, version["name"])
+    async def attribute_vulnerabilities(
+        self, package_name: str, version: Any
+    ) -> dict[str, Any]:
+        vulnerabilities = await self.vulnerability_service.read_vulnerabilities_by_package_and_version(
+            package_name, version["name"]
+        )
         version["vulnerabilities"] = []
         for vuln in vulnerabilities:
             version["vulnerabilities"].append(vuln["id"])
@@ -29,5 +33,9 @@ class Attributor:
 
     def weighted_mean(self) -> float:
         if self.impacts:
-            return round(sum(var**2 * 0.1 for var in self.impacts) / sum(var * 0.1 for var in self.impacts), 2)
+            return round(
+                sum(var**2 * 0.1 for var in self.impacts)
+                / sum(var * 0.1 for var in self.impacts),
+                2,
+            )
         return 0.0

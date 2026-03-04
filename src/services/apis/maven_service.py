@@ -38,7 +38,9 @@ class MavenService:
         try:
             all_packages = await to_thread(self.run_maven_extraction, maven_utils_dir)
             if all_packages:
-                logger.info(f"Maven - Extracted {len(all_packages):,} packages from Maven Central")
+                logger.info(
+                    f"Maven - Extracted {len(all_packages):,} packages from Maven Central"
+                )
                 await self.cache.set_cache("all_mvn_packages", all_packages, ttl=3600)
                 return all_packages
             else:
@@ -59,46 +61,43 @@ class MavenService:
 
             logger.info("Maven - Building Docker image...")
             build_cmd = [
-                "docker", "build",
-                "-t", docker_image,
-                "-f", str(dockerfile),
-                str(maven_utils_dir)
+                "docker",
+                "build",
+                "-t",
+                docker_image,
+                "-f",
+                str(dockerfile),
+                str(maven_utils_dir),
             ]
 
-            build_result = run(
-                build_cmd,
-                capture_output=True,
-                text=True,
-                timeout=600
-            )
+            build_result = run(build_cmd, capture_output=True, text=True, timeout=600)
 
             if build_result.returncode != 0:
                 logger.error(f"Maven - Docker build failed: {build_result.stderr}")
                 return []
 
-            logger.info("Maven - Running extraction container (this may take 1-2 hours)...")
+            logger.info(
+                "Maven - Running extraction container (this may take 1-2 hours)..."
+            )
 
             run_cmd = ["docker", "run", "--rm", docker_image]
 
-            run_result = run(
-                run_cmd,
-                capture_output=True,
-                text=True,
-                timeout=10800
-            )
+            run_result = run(run_cmd, capture_output=True, text=True, timeout=10800)
 
             if run_result.returncode != 0:
                 logger.error(f"Maven - Extraction failed: {run_result.stderr}")
                 return []
 
             if run_result.stderr:
-                for line in run_result.stderr.strip().split('\n')[-5:]:
+                for line in run_result.stderr.strip().split("\n")[-5:]:
                     if line:
                         logger.info(f"Maven - {line}")
 
             try:
                 all_packages = loads(run_result.stdout)
-                logger.info(f"Maven - Successfully parsed {len(all_packages):,} packages")
+                logger.info(
+                    f"Maven - Successfully parsed {len(all_packages):,} packages"
+                )
                 return all_packages
             except JSONDecodeError as e:
                 logger.error(f"Maven - Failed to parse JSON output: {e}")
@@ -111,7 +110,9 @@ class MavenService:
             logger.error(f"Maven - Unexpected error: {e}")
             return []
 
-    async def fetch_package_metadata(self, group_id: str, artifact_id: str) -> dict[str, Any]:
+    async def fetch_package_metadata(
+        self, group_id: str, artifact_id: str
+    ) -> dict[str, Any]:
         package_name = f"{group_id}:{artifact_id}"
         cached = await self.cache.get_cache(package_name)
         if cached:
@@ -133,7 +134,9 @@ class MavenService:
                 return {}
         return {}
 
-    async def fetch_package_version_metadata(self, group_id: str, artifact_id: str, version_name: str) -> dict[str, Any]:
+    async def fetch_package_version_metadata(
+        self, group_id: str, artifact_id: str, version_name: str
+    ) -> dict[str, Any]:
         cache_key = f"{group_id}:{artifact_id}:{version_name}"
         cached = await self.cache.get_cache(cache_key)
         if cached:
@@ -189,7 +192,9 @@ class MavenService:
             version = latest_doc.get("v")
 
             if group_id and artifact_id and version:
-                pom_data = await self.fetch_package_version_metadata(group_id, artifact_id, version)
+                pom_data = await self.fetch_package_version_metadata(
+                    group_id, artifact_id, version
+                )
                 if pom_data and pom_data.get("pom"):
                     pom_content = pom_data["pom"]
                     if "<scm>" in pom_content and "<url>" in pom_content:
@@ -234,7 +239,7 @@ class MavenService:
                     dep_end = deps_section.find("</dependency>", dep_start)
                     if dep_end == -1:
                         break
-                    dependency_blocks.append(deps_section[dep_start:dep_end + 13])
+                    dependency_blocks.append(deps_section[dep_start : dep_end + 13])
                     start = dep_end + 13
 
                 for dep_block in dependency_blocks:
@@ -256,7 +261,9 @@ class MavenService:
                             dep_version = ""
 
                         if dep_group and dep_artifact:
-                            requirements[f"{dep_group}:{dep_artifact}".lower()] = dep_version
+                            requirements[f"{dep_group}:{dep_artifact}".lower()] = (
+                                dep_version
+                            )
                     except Exception:
                         pass
             except Exception:
@@ -264,7 +271,9 @@ class MavenService:
 
         return requirements
 
-    async def extract_import_names(self, group_id: str, artifact_id: str, version: str) -> list[str]:
+    async def extract_import_names(
+        self, group_id: str, artifact_id: str, version: str
+    ) -> list[str]:
         cache_key = f"import_names:{group_id}:{artifact_id}:{version}"
         cached = await self.cache.get_cache(cache_key)
         if cached:
@@ -278,7 +287,9 @@ class MavenService:
         try:
             async with session.get(download_url, timeout=get_default_timeout()) as resp:
                 if resp.status != 200:
-                    logger.warning(f"Maven - Failed to download {group_id}:{artifact_id}:{version}: HTTP {resp.status}")
+                    logger.warning(
+                        f"Maven - Failed to download {group_id}:{artifact_id}:{version}: HTTP {resp.status}"
+                    )
                     return []
 
                 jar_bytes = await resp.read()
@@ -288,7 +299,9 @@ class MavenService:
                 return import_names
 
         except Exception as e:
-            logger.error(f"Maven - Error extracting import_names for {group_id}:{artifact_id}:{version}: {e}")
+            logger.error(
+                f"Maven - Error extracting import_names for {group_id}:{artifact_id}:{version}: {e}"
+            )
             return []
 
     def extract_from_jar(self, jar_bytes: bytes) -> list[str]:
@@ -296,13 +309,19 @@ class MavenService:
             with ZipFile(BytesIO(jar_bytes)) as jar:
                 all_packages = set()
                 for entry in jar.namelist():
-                    if entry.endswith(".class") and not entry.startswith("META-INF") and "$" not in entry:
+                    if (
+                        entry.endswith(".class")
+                        and not entry.startswith("META-INF")
+                        and "$" not in entry
+                    ):
                         parts = entry.split("/")
                         if len(parts) > 1:
                             package = ".".join(parts[:-1])
                             all_packages.add(package)
 
-            sorted_packages: list[str] = sorted(all_packages, key=lambda p: len(p.split(".")))
+            sorted_packages: list[str] = sorted(
+                all_packages, key=lambda p: len(p.split("."))
+            )
 
             general_imports: list[str] = []
             for pkg in sorted_packages:

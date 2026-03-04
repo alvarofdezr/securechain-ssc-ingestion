@@ -40,8 +40,12 @@ class CargoService:
             all_package_names = await to_thread(self.fetch_from_git_index)
 
             if all_package_names:
-                logger.info(f"Cargo - Successfully fetched {len(all_package_names)} crates from git index")
-                await self.cache.set_cache("all_cargo_packages", all_package_names, ttl=3600)
+                logger.info(
+                    f"Cargo - Successfully fetched {len(all_package_names)} crates from git index"
+                )
+                await self.cache.set_cache(
+                    "all_cargo_packages", all_package_names, ttl=3600
+                )
                 return all_package_names
             else:
                 logger.error("Cargo - Git index fetch returned empty")
@@ -61,10 +65,16 @@ class CargoService:
             logger.info(f"Cargo - Cloning crates.io index to {index_path}...")
 
             result = subprocess_run(
-                ["git", "clone", "--depth=1", "https://github.com/rust-lang/crates.io-index.git", str(index_path)],
+                [
+                    "git",
+                    "clone",
+                    "--depth=1",
+                    "https://github.com/rust-lang/crates.io-index.git",
+                    str(index_path),
+                ],
                 capture_output=True,
                 text=True,
-                timeout=300
+                timeout=300,
             )
 
             if result.returncode != 0:
@@ -76,9 +86,13 @@ class CargoService:
             package_names = set()
 
             for json_file in index_path.rglob("*"):
-                if json_file.is_file() and not json_file.name.startswith(".") and json_file.name != "config.json":
+                if (
+                    json_file.is_file()
+                    and not json_file.name.startswith(".")
+                    and json_file.name != "config.json"
+                ):
                     try:
-                        with open(json_file, encoding='utf-8') as f:
+                        with open(json_file, encoding="utf-8") as f:
                             for line in f:
                                 line = line.strip()
                                 if line:
@@ -93,7 +107,9 @@ class CargoService:
                         logger.warning(f"Cargo - Error reading {json_file}: {e}")
                         continue
 
-            logger.info(f"Cargo - Extracted {len(package_names)} package names from git index")
+            logger.info(
+                f"Cargo - Extracted {len(package_names)} package names from git index"
+            )
             return sorted(package_names)
 
         except Exception as e:
@@ -127,7 +143,9 @@ class CargoService:
                 return {}
         return {}
 
-    async def fetch_package_version_metadata(self, package_name: str, version_name: str) -> dict[str, Any]:
+    async def fetch_package_version_metadata(
+        self, package_name: str, version_name: str
+    ) -> dict[str, Any]:
         cache_key = f"{package_name}:{version_name}"
         cached = await self.cache.get_cache(cache_key)
         if cached:
@@ -205,24 +223,32 @@ class CargoService:
         if cached:
             return cached
 
-        download_url = f"https://crates.io/api/v1/crates/{crate_name}/{version}/download"
+        download_url = (
+            f"https://crates.io/api/v1/crates/{crate_name}/{version}/download"
+        )
         session_manager = get_session_manager()
         session = await session_manager.get_session()
 
         try:
             async with session.get(download_url, timeout=get_default_timeout()) as resp:
                 if resp.status != 200:
-                    logger.warning(f"Cargo - Failed to download {crate_name}@{version}: HTTP {resp.status}")
+                    logger.warning(
+                        f"Cargo - Failed to download {crate_name}@{version}: HTTP {resp.status}"
+                    )
                     return []
 
                 crate_bytes = await resp.read()
-                import_names = await to_thread(self.extract_from_tarball, crate_name, crate_bytes)
+                import_names = await to_thread(
+                    self.extract_from_tarball, crate_name, crate_bytes
+                )
 
                 await self.cache.set_cache(cache_key, import_names, ttl=604800)
                 return import_names
 
         except Exception as e:
-            logger.error(f"Cargo - Error extracting import_names for {crate_name}@{version}: {e}")
+            logger.error(
+                f"Cargo - Error extracting import_names for {crate_name}@{version}: {e}"
+            )
             return []
 
     def extract_from_tarball(self, crate_name: str, crate_bytes: bytes) -> list[str]:
@@ -236,8 +262,12 @@ class CargoService:
                     try:
                         file_extracted = tar.extractfile(member)
                         if file_extracted is not None:
-                            file_data = file_extracted.read().decode("utf-8", errors="replace")
-                            import_names.update(self.extract_public_items(crate_name, file_data))
+                            file_data = file_extracted.read().decode(
+                                "utf-8", errors="replace"
+                            )
+                            import_names.update(
+                                self.extract_public_items(crate_name, file_data)
+                            )
 
                     except UnicodeDecodeError:
                         logger.warning(f"Cargo - Unicode decode error in {member.name}")
@@ -259,47 +289,53 @@ class CargoService:
     def extract_public_items(self, crate_name: str, file_data: str) -> set[str]:
         items = set()
 
-        pub_mods = findall(r'\bpub\s+mod\s+(\w+)', file_data)
+        pub_mods = findall(r"\bpub\s+mod\s+(\w+)", file_data)
         for mod in pub_mods:
             items.add(f"{crate_name}::{mod}")
 
-        pub_uses = findall(r'\bpub\s+use\s+(?:[\w:]+::)?(\w+)', file_data)
+        pub_uses = findall(r"\bpub\s+use\s+(?:[\w:]+::)?(\w+)", file_data)
         for name in pub_uses:
             items.add(f"{crate_name}::{name}")
 
-        pub_structs = findall(r'\bpub\s+struct\s+(\w+)', file_data)
+        pub_structs = findall(r"\bpub\s+struct\s+(\w+)", file_data)
         for struct in pub_structs:
             items.add(f"{crate_name}::{struct}")
 
-        pub_enums = findall(r'\bpub\s+enum\s+(\w+)', file_data)
+        pub_enums = findall(r"\bpub\s+enum\s+(\w+)", file_data)
         for enum in pub_enums:
             items.add(f"{crate_name}::{enum}")
 
-        pub_traits = findall(r'\bpub\s+trait\s+(\w+)', file_data)
+        pub_traits = findall(r"\bpub\s+trait\s+(\w+)", file_data)
         for trait in pub_traits:
             items.add(f"{crate_name}::{trait}")
 
-        pub_fns = findall(r'^\s*pub\s+(?:const\s+|async\s+|unsafe\s+)*fn\s+(\w+)', file_data, MULTILINE)
+        pub_fns = findall(
+            r"^\s*pub\s+(?:const\s+|async\s+|unsafe\s+)*fn\s+(\w+)",
+            file_data,
+            MULTILINE,
+        )
         for fn in pub_fns:
             items.add(f"{crate_name}::{fn}")
 
-        pub_consts = findall(r'\bpub\s+const\s+(\w+)', file_data)
+        pub_consts = findall(r"\bpub\s+const\s+(\w+)", file_data)
         for const in pub_consts:
             items.add(f"{crate_name}::{const}")
 
-        pub_statics = findall(r'\bpub\s+static\s+(\w+)', file_data)
+        pub_statics = findall(r"\bpub\s+static\s+(\w+)", file_data)
         for static in pub_statics:
             items.add(f"{crate_name}::{static}")
 
-        pub_macro_rules = findall(r'#\[macro_export\]\s*macro_rules!\s+(\w+)', file_data)
+        pub_macro_rules = findall(
+            r"#\[macro_export\]\s*macro_rules!\s+(\w+)", file_data
+        )
         for macro in pub_macro_rules:
             items.add(f"{crate_name}::{macro}")
 
-        pub_macros = findall(r'\bpub\s+macro\s+(\w+)', file_data)
+        pub_macros = findall(r"\bpub\s+macro\s+(\w+)", file_data)
         for macro in pub_macros:
             items.add(f"{crate_name}::{macro}")
 
-        pub_types = findall(r'\bpub\s+type\s+(\w+)', file_data)
+        pub_types = findall(r"\bpub\s+type\s+(\w+)", file_data)
         for type_alias in pub_types:
             items.add(f"{crate_name}::{type_alias}")
 

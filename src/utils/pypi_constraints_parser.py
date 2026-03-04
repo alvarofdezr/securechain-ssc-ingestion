@@ -14,7 +14,6 @@ class PyPIConstraintsParser:
                     return clean_ctcs
         return "any"
 
-
     def clean(self, raw_constraints: list[str]) -> str:
         constraints = []
         for raw_constraint in raw_constraints:
@@ -68,14 +67,16 @@ class PyPIConstraintsParser:
                         if part.isdigit() or index == 0:
                             cleaned_parts.append(part)
                     if have_exc:
-                        version =  cleaned_parts[0] + "!" + ".".join(cleaned_parts[1:])
+                        version = cleaned_parts[0] + "!" + ".".join(cleaned_parts[1:])
                     else:
-                        version =  ".".join(cleaned_parts)
+                        version = ".".join(cleaned_parts)
                     cleaned_parts[-2] = str(int(cleaned_parts[-2]) + 1)
                     cleaned_parts.pop()
                     if have_exc:
                         constraints.append(">=" + version)
-                        constraints.append("<" + cleaned_parts[0] + "!" + ".".join(cleaned_parts[1:]))
+                        constraints.append(
+                            "<" + cleaned_parts[0] + "!" + ".".join(cleaned_parts[1:])
+                        )
                     else:
                         constraints.append(">=" + version)
                         constraints.append("<" + ".".join(cleaned_parts))

@@ -16,7 +16,7 @@ class NuGetPackageSchema(BaseModel):
     )
     import_names: list[str] = Field(
         default_factory=list,
-        description="List of .NET namespaces that can be imported from this package (e.g., 'System.Text.Json', 'Microsoft.Extensions.Logging')"
+        description="List of .NET namespaces that can be imported from this package (e.g., 'System.Text.Json', 'Microsoft.Extensions.Logging')",
     )
 
     def to_dict(self) -> dict:

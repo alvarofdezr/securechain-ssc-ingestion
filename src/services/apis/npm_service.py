@@ -39,14 +39,20 @@ class NPMService:
             batch_size = 10000
             since = 0
 
-            logger.info(f"NPM - Fetching all packages using _changes feed (batch size: {batch_size})")
+            logger.info(
+                f"NPM - Fetching all packages using _changes feed (batch size: {batch_size})"
+            )
 
             while True:
                 params = {"limit": batch_size, "since": since}
 
-                async with session.get(self.CHANGES_URL, params=params, timeout=get_long_timeout()) as resp:
+                async with session.get(
+                    self.CHANGES_URL, params=params, timeout=get_long_timeout()
+                ) as resp:
                     if resp.status != 200:
-                        logger.warning(f"NPM - Error fetching changes: HTTP {resp.status}")
+                        logger.warning(
+                            f"NPM - Error fetching changes: HTTP {resp.status}"
+                        )
                         break
 
                     data = await resp.json()
@@ -73,7 +79,13 @@ class NPMService:
             await self.cache.set_cache("all_npm_packages", package_names, ttl=3600)
             return package_names
 
-        except (ClientConnectorError, TimeoutError, JSONDecodeError, ContentTypeError, Exception) as e:
+        except (
+            ClientConnectorError,
+            TimeoutError,
+            JSONDecodeError,
+            ContentTypeError,
+            Exception,
+        ) as e:
             logger.error(f"NPM - Error fetching package names: {e}")
             return []
 
@@ -100,7 +112,9 @@ class NPMService:
                 return {}
         return {}
 
-    def extract_raw_versions_and_requirements(self, metadata: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    def extract_raw_versions_and_requirements(
+        self, metadata: dict[str, Any]
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         raw_versions = []
         requirements = []
         versions_data = metadata.get("versions", {})
@@ -108,19 +122,20 @@ class NPMService:
 
         for version_name, version_info in versions_data.items():
             release_date = time_data.get(version_name)
-            raw_versions.append({
-                "name": version_name,
-                "release_date": release_date
-            })
+            raw_versions.append({"name": version_name, "release_date": release_date})
             dependencies = version_info.get("dependencies", {})
             requirements.append(dependencies)
 
         return raw_versions, requirements
 
-    async def get_versions_and_requirements(self, metadata: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    async def get_versions_and_requirements(
+        self, metadata: dict[str, Any]
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         if not metadata:
             return [], []
-        raw_versions, requirements = self.extract_raw_versions_and_requirements(metadata)
+        raw_versions, requirements = self.extract_raw_versions_and_requirements(
+            metadata
+        )
         versions = self.orderer.order_versions(raw_versions)
         return versions, requirements
 
@@ -170,7 +185,9 @@ class NPMService:
         try:
             async with session.get(metadata_url, timeout=get_default_timeout()) as resp:
                 if resp.status != 200:
-                    logger.warning(f"NPM - Failed to get metadata for {package_name}@{version}: HTTP {resp.status}")
+                    logger.warning(
+                        f"NPM - Failed to get metadata for {package_name}@{version}: HTTP {resp.status}"
+                    )
                     return []
 
                 metadata = await resp.json()
@@ -179,28 +196,38 @@ class NPMService:
                 version_data = versions.get(version)
 
                 if not version_data:
-                    logger.warning(f"NPM - Version {version} not found for {package_name}")
+                    logger.warning(
+                        f"NPM - Version {version} not found for {package_name}"
+                    )
                     return []
 
                 tarball_url = version_data.get("dist", {}).get("tarball")
 
                 if not tarball_url:
-                    logger.warning(f"NPM - No tarball URL found for {package_name}@{version}")
+                    logger.warning(
+                        f"NPM - No tarball URL found for {package_name}@{version}"
+                    )
                     return []
 
             async with session.get(tarball_url, timeout=get_default_timeout()) as resp:
                 if resp.status != 200:
-                    logger.warning(f"NPM - Failed to download {package_name}@{version}: HTTP {resp.status}")
+                    logger.warning(
+                        f"NPM - Failed to download {package_name}@{version}: HTTP {resp.status}"
+                    )
                     return []
 
                 tgz_bytes = await resp.read()
-                import_names = await to_thread(self.extract_from_tarball, package_name, tgz_bytes)
+                import_names = await to_thread(
+                    self.extract_from_tarball, package_name, tgz_bytes
+                )
 
                 await self.cache.set_cache(cache_key, import_names, ttl=604800)
                 return import_names
 
         except Exception as e:
-            logger.error(f"NPM - Error extracting import_names for {package_name}@{version}: {e}")
+            logger.error(
+                f"NPM - Error extracting import_names for {package_name}@{version}: {e}"
+            )
             return []
 
     def extract_from_tarball(self, package_name: str, tgz_bytes: bytes) -> list[str]:
@@ -211,18 +238,24 @@ class NPMService:
                 for member in tar.getmembers():
                     if member.isfile():
                         name = member.name
-                        if name.endswith(('.js', '.mjs', '.ts')) and name.startswith('package/'):
-                            path = name[len("package/"):]
+                        if name.endswith((".js", ".mjs", ".ts")) and name.startswith(
+                            "package/"
+                        ):
+                            path = name[len("package/") :]
 
-                            if path.startswith("node_modules") or path.startswith("test") or "internal" in path:
+                            if (
+                                path.startswith("node_modules")
+                                or path.startswith("test")
+                                or "internal" in path
+                            ):
                                 continue
 
                             if path.endswith("index.js"):
                                 import_names.add(package_name)
                             else:
-                                for ext in ['.js', '.mjs', '.ts']:
+                                for ext in [".js", ".mjs", ".ts"]:
                                     if path.endswith(ext):
-                                        module = path[:-len(ext)]
+                                        module = path[: -len(ext)]
                                         break
                                 else:
                                     module = path

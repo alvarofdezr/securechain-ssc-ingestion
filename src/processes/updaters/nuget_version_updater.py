@@ -24,20 +24,30 @@ class NuGetVersionUpdater:
         package_name = package.get("name", "")
 
         metadata = await self.nuget_service.fetch_package_metadata(package_name)
-        versions, requirements = await self.nuget_service.get_versions_and_requirements(metadata)
+        versions, requirements = await self.nuget_service.get_versions_and_requirements(
+            metadata
+        )
         repository_url = await self.nuget_service.get_repo_url(metadata)
         vendor = repository_url.split("/")[-2] if repository_url else None
 
-        count = await self.version_service.count_number_of_versions_by_package("NuGetPackage", package_name)
+        count = await self.version_service.count_number_of_versions_by_package(
+            "NuGetPackage", package_name
+        )
         if count < len(versions):
             new_attributed_versions: list[dict[str, Any]] = []
             new_requirements = []
-            actual_versions = await self.version_service.read_versions_names_by_package("NuGetPackage", package_name)
+            actual_versions = await self.version_service.read_versions_names_by_package(
+                "NuGetPackage", package_name
+            )
 
-            for index, (version, requirement) in enumerate(zip(versions, requirements, strict=False)):
+            for index, (version, requirement) in enumerate(
+                zip(versions, requirements, strict=False)
+            ):
                 if version.get("name", "") not in actual_versions:
                     new_attributed_versions.append(
-                        await self.attributor.attribute_vulnerabilities(package_name, version)
+                        await self.attributor.attribute_vulnerabilities(
+                            package_name, version
+                        )
                     )
                     del versions[index]
                     new_requirements.append(requirement)
@@ -48,7 +58,9 @@ class NuGetVersionUpdater:
                 new_attributed_versions,
             )
 
-            await self.version_service.update_versions_serial_number("NuGetPackage", package_name, versions)
+            await self.version_service.update_versions_serial_number(
+                "NuGetPackage", package_name, versions
+            )
 
             package_schema = NuGetPackageSchema(
                 name=package_name,
@@ -57,7 +69,9 @@ class NuGetVersionUpdater:
                 moment=datetime.now(),
             )
 
-            for version, requirement in zip(created_versions, new_requirements, strict=False):
+            for version, requirement in zip(
+                created_versions, new_requirements, strict=False
+            ):
                 extractor = NuGetPackageExtractor(
                     package=package_schema,
                     package_service=self.package_service,
@@ -66,6 +80,8 @@ class NuGetVersionUpdater:
                     attributor=self.attributor,
                 )
                 if requirement:
-                    await extractor.generate_packages(requirement, version.get("id", ""), package_name)
+                    await extractor.generate_packages(
+                        requirement, version.get("id", ""), package_name
+                    )
 
         await self.package_service.update_package_moment("NuGetPackage", package_name)

@@ -58,4 +58,5 @@ class LoggerManager:
     def debug(self, msg: str, *args, **kwargs):
         self.logger.debug(msg, *args, **kwargs)
 
+
 logger = LoggerManager()

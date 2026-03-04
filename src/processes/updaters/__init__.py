@@ -13,5 +13,5 @@ __all__ = [
     "NPMVersionUpdater",
     "NuGetVersionUpdater",
     "PyPIVersionUpdater",
-    "RubyGemsVersionUpdater"
+    "RubyGemsVersionUpdater",
 ]

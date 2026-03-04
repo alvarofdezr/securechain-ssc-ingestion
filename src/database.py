@@ -59,7 +59,9 @@ class DatabaseManager:
     def get_vulnerabilities_collection(self) -> AsyncCollection:
         if self.vulnerabilities_db is None:
             raise RuntimeError("Database not initialized. Call initialize() first.")
-        return self.vulnerabilities_db.get_collection(settings.DB_VULNERABILITIES_COLLECTION)
+        return self.vulnerabilities_db.get_collection(
+            settings.DB_VULNERABILITIES_COLLECTION
+        )
 
     def get_neo4j_driver(self) -> AsyncDriver:
         if self.neo4j_driver is None:

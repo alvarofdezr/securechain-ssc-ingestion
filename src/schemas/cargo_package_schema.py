@@ -15,7 +15,8 @@ class CargoPackageSchema(BaseModel):
         default_factory=datetime.now, description="Timestamp of the last update"
     )
     import_names: list[str] = Field(
-        default_factory=list, description="List of public API import names extracted from the crate"
+        default_factory=list,
+        description="List of public API import names extracted from the crate",
     )
 
     def to_dict(self) -> dict:

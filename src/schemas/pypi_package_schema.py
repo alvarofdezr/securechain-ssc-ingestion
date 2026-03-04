@@ -16,7 +16,7 @@ class PyPIPackageSchema(BaseModel):
     )
     import_names: list[str] = Field(
         default_factory=list,
-        description="List of Python modules/packages that can be imported (e.g., 'requests', 'flask.app', 'numpy.array')"
+        description="List of Python modules/packages that can be imported (e.g., 'requests', 'flask.app', 'numpy.array')",
     )
 
     def to_dict(self) -> dict:

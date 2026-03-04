@@ -50,12 +50,16 @@ def rubygems_package_ingestion(
                 try:
                     gem_name_lower = gem_name.lower()
 
-                    existing_package = await package_svc.read_package_by_name("RubyGemsPackage", gem_name_lower)
+                    existing_package = await package_svc.read_package_by_name(
+                        "RubyGemsPackage", gem_name_lower
+                    )
 
                     if existing_package:
                         skipped_packages += 1
                         if idx % 1000 == 0:
-                            context.log.info(f"RubyGems - Progress: {idx}/{total_gems} (New: {new_packages}, Skipped: {skipped_packages})")
+                            context.log.info(
+                                f"RubyGems - Progress: {idx}/{total_gems} (New: {new_packages}, Skipped: {skipped_packages})"
+                            )
                         continue
 
                     package_schema = RubyGemsPackageSchema(name=gem_name_lower)
@@ -71,17 +75,23 @@ def rubygems_package_ingestion(
                     await extractor.run()
                     new_packages += 1
 
-                    context.log.info(f"RubyGems - Ingested new gem: {gem_name_lower} ({new_packages} new gems)")
+                    context.log.info(
+                        f"RubyGems - Ingested new gem: {gem_name_lower} ({new_packages} new gems)"
+                    )
 
                     if idx % 100 == 0:
-                        context.log.info(f"RubyGems - Progress: {idx}/{total_gems} (New: {new_packages}, Skipped: {skipped_packages})")
+                        context.log.info(
+                            f"RubyGems - Progress: {idx}/{total_gems} (New: {new_packages}, Skipped: {skipped_packages})"
+                        )
 
                 except Exception as e:
                     error_count += 1
                     logger.error(f"RubyGems - Error ingesting {gem_name}: {e}")
                     context.log.error(f"RubyGems - Error ingesting {gem_name}: {e}")
 
-            logger.info(f"RubyGems ingestion process completed. New gems: {new_packages}, Skipped: {skipped_packages}, Errors: {error_count}")
+            logger.info(
+                f"RubyGems ingestion process completed. New gems: {new_packages}, Skipped: {skipped_packages}, Errors: {error_count}"
+            )
 
             return {
                 "total_in_registry": total_gems,
@@ -101,9 +111,10 @@ def rubygems_package_ingestion(
                 "errors": stats["errors"],
                 "ingestion_rate": MetadataValue.float(
                     (stats["new_packages_ingested"] / stats["total_in_registry"] * 100)
-                    if stats["total_in_registry"] > 0 else 0.0
+                    if stats["total_in_registry"] > 0
+                    else 0.0
                 ),
-            }
+            },
         )
 
     except Exception as e:
@@ -131,29 +142,39 @@ def rubygems_packages_updates(
             version_svc = get_version_service()
             attr = get_attributor()
 
-            updater = RubyGemsVersionUpdater(rubygems_svc, package_svc, version_svc, attr)
+            updater = RubyGemsVersionUpdater(
+                rubygems_svc, package_svc, version_svc, attr
+            )
 
             package_count = 0
             version_count = 0
             error_count = 0
 
-            async for batch in package_svc.read_packages_in_batches("RubyGemsPackage", batch_size=100):
+            async for batch in package_svc.read_packages_in_batches(
+                "RubyGemsPackage", batch_size=100
+            ):
                 for pkg in batch:
                     try:
                         await updater.update_package_versions(pkg)
                         package_count += 1
 
-                        versions = await version_svc.count_number_of_versions_by_package(
-                            "RubyGemsPackage", pkg['name']
+                        versions = (
+                            await version_svc.count_number_of_versions_by_package(
+                                "RubyGemsPackage", pkg["name"]
+                            )
                         )
                         version_count += versions
 
-                        context.log.info(f"RubyGems - Successfully updated {pkg['name']} (Total: {package_count})")
+                        context.log.info(
+                            f"RubyGems - Successfully updated {pkg['name']} (Total: {package_count})"
+                        )
                     except Exception as e:
                         error_count += 1
                         logger.error(f"RubyGems - Error updating {pkg['name']}: {e}")
 
-            logger.info(f"RubyGems update process completed. Total packages: {package_count}")
+            logger.info(
+                f"RubyGems update process completed. Total packages: {package_count}"
+            )
 
             return {
                 "packages_processed": package_count,
@@ -170,10 +191,15 @@ def rubygems_packages_updates(
                 "total_versions": stats["total_versions"],
                 "errors": stats["errors"],
                 "success_rate": MetadataValue.float(
-                    (stats["packages_processed"] / (stats["packages_processed"] + stats["errors"]) * 100)
-                    if (stats["packages_processed"] + stats["errors"]) > 0 else 0.0
+                    (
+                        stats["packages_processed"]
+                        / (stats["packages_processed"] + stats["errors"])
+                        * 100
+                    )
+                    if (stats["packages_processed"] + stats["errors"]) > 0
+                    else 0.0
                 ),
-            }
+            },
         )
 
     except Exception as e:

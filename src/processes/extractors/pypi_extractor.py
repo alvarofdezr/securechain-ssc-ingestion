@@ -16,7 +16,7 @@ class PyPIPackageExtractor(PackageExtractor):
         version_service: VersionService,
         pypi_service: PyPIService,
         attributor: Attributor,
-        **kwargs
+        **kwargs,
     ):
         super().__init__(**kwargs)
         self.package = package
@@ -41,14 +41,18 @@ class PyPIPackageExtractor(PackageExtractor):
     ) -> None:
         known_packages = []
         for package_name, constraints in requirement.items():
-            package = await self.package_service.read_package_by_name("PyPIPackage", package_name)
+            package = await self.package_service.read_package_by_name(
+                "PyPIPackage", package_name
+            )
             if package:
                 package["parent_id"] = parent_id
                 package["parent_version_name"] = parent_version_name
                 package["constraints"] = constraints
                 known_packages.append(package)
             else:
-                await self.create_package(package_name, constraints, parent_id, parent_version_name)
+                await self.create_package(
+                    package_name, constraints, parent_id, parent_version_name
+                )
 
         await self.package_service.relate_packages("PyPIPackage", known_packages)
 
@@ -68,14 +72,17 @@ class PyPIPackageExtractor(PackageExtractor):
             return
 
         attributed_versions = [
-            await self.attributor.attribute_vulnerabilities(package_name, version) for version in versions
+            await self.attributor.attribute_vulnerabilities(package_name, version)
+            for version in versions
         ]
 
         import_names = []
         if versions:
             latest_version = versions[-1].get("name")
             if latest_version:
-                import_names = await self.pypi_service.extract_import_names(package_name, latest_version)
+                import_names = await self.pypi_service.extract_import_names(
+                    package_name, latest_version
+                )
 
         pkg = PyPIPackageSchema(
             name=package_name,
@@ -97,11 +104,19 @@ class PyPIPackageExtractor(PackageExtractor):
         for created_version in created_versions:
             await self.extract_packages(package_name, created_version)
 
-        await self.version_service.update_versions_serial_number("PyPIPackage", package_name, versions)
+        await self.version_service.update_versions_serial_number(
+            "PyPIPackage", package_name, versions
+        )
         await self.package_service.update_package_moment("PyPIPackage", package_name)
 
-    async def extract_packages(self, parent_package_name: str, version: dict[str, Any]) -> None:
-        metadata = await self.pypi_service.fetch_package_version_metadata(parent_package_name, version.get("name", ""))
+    async def extract_packages(
+        self, parent_package_name: str, version: dict[str, Any]
+    ) -> None:
+        metadata = await self.pypi_service.fetch_package_version_metadata(
+            parent_package_name, version.get("name", "")
+        )
         requirement = self.pypi_service.get_package_requirements(metadata)
         if requirement:
-            await self.generate_packages(requirement, version.get("id", ""), parent_package_name)
+            await self.generate_packages(
+                requirement, version.get("id", ""), parent_package_name
+            )

@@ -15,7 +15,8 @@ class NPMPackageSchema(BaseModel):
         default_factory=datetime.now, description="Timestamp of the last update"
     )
     import_names: list[str] = Field(
-        default_factory=list, description="List of module paths extracted from the NPM package"
+        default_factory=list,
+        description="List of module paths extracted from the NPM package",
     )
 
     def to_dict(self) -> dict:

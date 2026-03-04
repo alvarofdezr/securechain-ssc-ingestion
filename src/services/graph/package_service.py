@@ -22,16 +22,16 @@ class PackageService:
         parent_match = ""
         parent_rel = ""
         if parent_id:
-            parent_match = (
-                """
+            parent_match = """
                 MATCH (parent:RequirementFile|Version)
                 WHERE elementid(parent) = $parent_id
                 """
-            )
-            parent_rel = (
-                f"CREATE (parent)-[rel_p:REQUIRE{{constraints:$constraints{", parent_version_name:$parent_version_name" if parent_version_name else ""}}}]->(p)"
-            )
-        pkg_key = "group_id:$group_id, artifact_id:$artifact_id, name:$name" if node_type == "MavenPackage" else "name:$name"
+            parent_rel = f"CREATE (parent)-[rel_p:REQUIRE{{constraints:$constraints{', parent_version_name:$parent_version_name' if parent_version_name else ''}}}]->(p)"
+        pkg_key = (
+            "group_id:$group_id, artifact_id:$artifact_id, name:$name"
+            if node_type == "MavenPackage"
+            else "name:$name"
+        )
 
         query = f"""
         {parent_match}
@@ -54,7 +54,7 @@ class PackageService:
         """
         async with self.driver.session() as session:
             result = await session.run(
-                query, # type: ignore
+                query,  # type: ignore
                 package,
                 constraints=constraints,
                 parent_id=parent_id,
@@ -64,7 +64,9 @@ class PackageService:
             record = await result.single()
         return record["versions"] if record else []
 
-    async def read_package_by_name(self, node_type: str, package_name: str) -> dict[str, Any]:
+    async def read_package_by_name(
+        self, node_type: str, package_name: str
+    ) -> dict[str, Any]:
         # TODO: Add dynamic labels where Neo4j supports it with indexes
         query = f"""
         MATCH(p:{node_type}{{name:$package_name}})
@@ -72,16 +74,14 @@ class PackageService:
         """
         async with self.driver.session() as session:
             result = await session.run(
-                query, # type: ignore
-                package_name=package_name
+                query,  # type: ignore
+                package_name=package_name,
             )
             record = await result.single()
         return record["package"] if record else {}
 
     async def read_packages_in_batches(
-        self,
-        node_type: str,
-        batch_size: int = 1000
+        self, node_type: str, batch_size: int = 1000
     ) -> AsyncGenerator[list[dict]]:
         skip = 0
         while True:
@@ -92,14 +92,16 @@ class PackageService:
             SKIP $skip LIMIT $limit
             """
             async with self.driver.session() as session:
-                result = await session.run(query, skip=skip, limit=batch_size) # type: ignore
+                result = await session.run(query, skip=skip, limit=batch_size)  # type: ignore
                 records = [record async for record in result]
                 if not records:
                     break
                 yield [r.data() for r in records]
             skip += batch_size
 
-    async def relate_packages(self, node_type: str, packages: list[dict[str, Any]]) -> None:
+    async def relate_packages(
+        self, node_type: str, packages: list[dict[str, Any]]
+    ) -> None:
         # TODO: Add dynamic labels where Neo4j supports it with indexes
         query = f"""
         UNWIND $packages AS package
@@ -110,7 +112,7 @@ class PackageService:
         CREATE (parent)-[:REQUIRE{{constraints: package.constraints, parent_version_name: package.parent_version_name}}]->(p)
         """
         async with self.driver.session() as session:
-            await session.run(query, packages=packages) # type: ignore
+            await session.run(query, packages=packages)  # type: ignore
 
     async def update_package_moment(self, node_type: str, package_name: str) -> None:
         # TODO: Add dynamic labels where Neo4j supports it with indexes
@@ -119,4 +121,4 @@ class PackageService:
         SET p.moment = $moment
         """
         async with self.driver.session() as session:
-            await session.run(query, package_name=package_name, moment=datetime.now()) # type: ignore
+            await session.run(query, package_name=package_name, moment=datetime.now())  # type: ignore

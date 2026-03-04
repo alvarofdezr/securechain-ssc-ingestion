@@ -9,34 +9,34 @@ from src.dependencies import (
     get_attributor,
     get_cargo_service,
     get_db,
+    get_go_service,  # added for Go, using a common service getter pattern
     get_maven_service,
     get_npm_service,
     get_nuget_service,
     get_package_service,
     get_pypi_service,
     get_rubygems_service,
-    get_go_service, #added for Go, using a common service getter pattern
     get_version_service,
 )
 from src.logger import logger
 from src.processes.extractors import (
     CargoPackageExtractor,
+    GoPackageExtractor,
     MavenPackageExtractor,
     NPMPackageExtractor,
     NuGetPackageExtractor,
     PyPIPackageExtractor,
     RubyGemsPackageExtractor,
-    GoPackageExtractor, 
 )
 from src.schemas import (
     CargoPackageSchema,
+    GoPackageSchema,
     MavenPackageSchema,
     NPMPackageSchema,
     NuGetPackageSchema,
     PackageMessageSchema,
     PyPIPackageSchema,
     RubyGemsPackageSchema,
-    GoPackageSchema, 
 )
 from src.utils import RedisQueue
 
@@ -61,7 +61,7 @@ def redis_queue_processor(
         nuget_svc = get_nuget_service()
         cargo_svc = get_cargo_service()
         rubygems_svc = get_rubygems_service()
-        go_svc = get_go_service() #
+        go_svc = get_go_service()  #
 
         total_processed = 0
         successful = 0
@@ -70,7 +70,12 @@ def redis_queue_processor(
         unsupported_types = 0
 
         async def _process_messages():
-            nonlocal total_processed, successful, failed, validation_errors, unsupported_types
+            nonlocal \
+                total_processed, \
+                successful, \
+                failed, \
+                validation_errors, \
+                unsupported_types
 
             db = get_db()
             await db.initialize()
@@ -176,13 +181,17 @@ def redis_queue_processor(
                             artifact_id=artifact_id,
                             name=message.package,
                             vendor=message.vendor,
-                            repository_url=str(message.repository_url) if message.repository_url else "",
+                            repository_url=str(message.repository_url)
+                            if message.repository_url
+                            else "",
                         )
                     else:
                         package_schema = extractor_config["schema_class"](
                             name=message.package,
                             vendor=message.vendor,
-                            repository_url=str(message.repository_url) if message.repository_url else "",
+                            repository_url=str(message.repository_url)
+                            if message.repository_url
+                            else "",
                         )
 
                     extractor_params = {
@@ -238,7 +247,9 @@ def redis_queue_processor(
 
         run(_process_messages())
 
-        success_rate = (successful / total_processed * 100) if total_processed > 0 else 0.0
+        success_rate = (
+            (successful / total_processed * 100) if total_processed > 0 else 0.0
+        )
 
         return Output(
             value={

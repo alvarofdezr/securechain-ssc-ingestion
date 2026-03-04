@@ -28,7 +28,9 @@ class GoPackageSchema(BaseModel):
 
     model_config = ConfigDict(validate_assignment=True, str_strip_whitespace=True)
 
-    name: str = Field(..., description="Canonical Go module path as declared in go.mod.")
+    name: str = Field(
+        ..., description="Canonical Go module path as declared in go.mod."
+    )
     vendor: str = Field(
         default="n/a",
         description="Top-level host segment of the module path (e.g. 'github.com').",

@@ -50,12 +50,16 @@ def cargo_package_ingestion(
                 try:
                     package_name_lower = package_name.lower()
 
-                    existing_package = await package_svc.read_package_by_name("CargoPackage", package_name_lower)
+                    existing_package = await package_svc.read_package_by_name(
+                        "CargoPackage", package_name_lower
+                    )
 
                     if existing_package:
                         skipped_packages += 1
                         if idx % 1000 == 0:
-                            context.log.info(f"Cargo - Progress: {idx}/{total_packages} (New: {new_packages}, Skipped: {skipped_packages})")
+                            context.log.info(
+                                f"Cargo - Progress: {idx}/{total_packages} (New: {new_packages}, Skipped: {skipped_packages})"
+                            )
                         continue
 
                     package_schema = CargoPackageSchema(name=package_name_lower)
@@ -71,17 +75,23 @@ def cargo_package_ingestion(
                     await extractor.run()
                     new_packages += 1
 
-                    context.log.info(f"Cargo - Ingested new crate: {package_name_lower} ({new_packages} new crates)")
+                    context.log.info(
+                        f"Cargo - Ingested new crate: {package_name_lower} ({new_packages} new crates)"
+                    )
 
                     if idx % 100 == 0:
-                        context.log.info(f"Cargo - Progress: {idx}/{total_packages} (New: {new_packages}, Skipped: {skipped_packages})")
+                        context.log.info(
+                            f"Cargo - Progress: {idx}/{total_packages} (New: {new_packages}, Skipped: {skipped_packages})"
+                        )
 
                 except Exception as e:
                     error_count += 1
                     logger.error(f"Cargo - Error ingesting {package_name}: {e}")
                     context.log.error(f"Cargo - Error ingesting {package_name}: {e}")
 
-            logger.info(f"Cargo ingestion process completed. New crates: {new_packages}, Skipped: {skipped_packages}, Errors: {error_count}")
+            logger.info(
+                f"Cargo ingestion process completed. New crates: {new_packages}, Skipped: {skipped_packages}, Errors: {error_count}"
+            )
 
             return {
                 "total_in_registry": total_packages,
@@ -101,9 +111,10 @@ def cargo_package_ingestion(
                 "errors": stats["errors"],
                 "ingestion_rate": MetadataValue.float(
                     (stats["new_packages_ingested"] / stats["total_in_registry"] * 100)
-                    if stats["total_in_registry"] > 0 else 0.0
+                    if stats["total_in_registry"] > 0
+                    else 0.0
                 ),
-            }
+            },
         )
 
     except Exception as e:
@@ -137,23 +148,31 @@ def cargo_packages_updates(
             version_count = 0
             error_count = 0
 
-            async for batch in package_svc.read_packages_in_batches("CargoPackage", batch_size=100):
+            async for batch in package_svc.read_packages_in_batches(
+                "CargoPackage", batch_size=100
+            ):
                 for pkg in batch:
                     try:
                         await updater.update_package_versions(pkg)
                         package_count += 1
 
-                        versions = await version_svc.count_number_of_versions_by_package(
-                            "CargoPackage", pkg['name']
+                        versions = (
+                            await version_svc.count_number_of_versions_by_package(
+                                "CargoPackage", pkg["name"]
+                            )
                         )
                         version_count += versions
 
-                        context.log.info(f"Cargo - Successfully updated {pkg['name']} (Total: {package_count})")
+                        context.log.info(
+                            f"Cargo - Successfully updated {pkg['name']} (Total: {package_count})"
+                        )
                     except Exception as e:
                         error_count += 1
                         logger.error(f"Cargo - Error updating {pkg['name']}: {e}")
 
-            logger.info(f"Cargo update process completed. Total packages: {package_count}")
+            logger.info(
+                f"Cargo update process completed. Total packages: {package_count}"
+            )
 
             return {
                 "packages_processed": package_count,
@@ -170,10 +189,15 @@ def cargo_packages_updates(
                 "total_versions": stats["total_versions"],
                 "errors": stats["errors"],
                 "success_rate": MetadataValue.float(
-                    (stats["packages_processed"] / (stats["packages_processed"] + stats["errors"]) * 100)
-                    if (stats["packages_processed"] + stats["errors"]) > 0 else 0.0
+                    (
+                        stats["packages_processed"]
+                        / (stats["packages_processed"] + stats["errors"])
+                        * 100
+                    )
+                    if (stats["packages_processed"] + stats["errors"]) > 0
+                    else 0.0
                 ),
-            }
+            },
         )
 
     except Exception as e:

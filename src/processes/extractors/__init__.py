@@ -13,5 +13,5 @@ __all__ = [
     "NPMPackageExtractor",
     "NuGetPackageExtractor",
     "PyPIPackageExtractor",
-    "RubyGemsPackageExtractor"
+    "RubyGemsPackageExtractor",
 ]

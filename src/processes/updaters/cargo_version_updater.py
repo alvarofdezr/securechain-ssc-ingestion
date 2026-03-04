@@ -28,16 +28,22 @@ class CargoVersionUpdater:
         repository_url = self.cargo_service.get_repo_url(metadata)
         vendor = repository_url.split("/")[-2] if repository_url else None
 
-        count = await self.version_service.count_number_of_versions_by_package("CargoPackage", package_name)
+        count = await self.version_service.count_number_of_versions_by_package(
+            "CargoPackage", package_name
+        )
         if count < len(versions):
             new_attributed_versions: list[dict[str, Any]] = []
 
-            actual_versions = await self.version_service.read_versions_names_by_package("CargoPackage", package_name)
+            actual_versions = await self.version_service.read_versions_names_by_package(
+                "CargoPackage", package_name
+            )
 
             for index, version in enumerate(versions):
                 if version.get("name", "") not in actual_versions:
                     new_attributed_versions.append(
-                        await self.attributor.attribute_vulnerabilities(package_name, version)
+                        await self.attributor.attribute_vulnerabilities(
+                            package_name, version
+                        )
                     )
                     del versions[index]
 
@@ -47,7 +53,9 @@ class CargoVersionUpdater:
                 new_attributed_versions,
             )
 
-            await self.version_service.update_versions_serial_number("CargoPackage", package_name, versions)
+            await self.version_service.update_versions_serial_number(
+                "CargoPackage", package_name, versions
+            )
 
             for version in created_versions:
                 package_schema = CargoPackageSchema(

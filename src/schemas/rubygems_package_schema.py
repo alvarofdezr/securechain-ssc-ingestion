@@ -16,7 +16,7 @@ class RubyGemsPackageSchema(BaseModel):
     )
     import_names: list[str] = Field(
         default_factory=list,
-        description="List of Ruby module/class names that can be imported from this gem (e.g., 'Rails::Application', 'ActiveRecord::Base')"
+        description="List of Ruby module/class names that can be imported from this gem (e.g., 'Rails::Application', 'ActiveRecord::Base')",
     )
 
     def to_dict(self) -> dict:
