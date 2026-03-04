@@ -8,17 +8,17 @@ Data pipeline for ingesting and updating software packages from multiple ecosyst
 
 ## Overview
 
-This project extracts, processes, and ingests package data from six major software registries: PyPI (Python), NPM (Node.js), Maven (Java), Cargo (Rust), RubyGems (Ruby), and NuGet (.NET). The data is stored in Neo4j for dependency graph analysis and MongoDB for vulnerability information.
+This project extracts, processes, and ingests package data from seven major software registries: PyPI (Python), NPM (Node.js), Maven (Java), Cargo (Rust), RubyGems (Ruby), NuGet (.NET), and Go (Go modules). The data is stored in Neo4j for dependency graph analysis and MongoDB for vulnerability information.
 
-Built with **Dagster 1.11.13** for modern data orchestration, providing a clean asset-centric approach with automatic data lineage tracking, scheduling capabilities, and comprehensive monitoring.
+Built with **Dagster 1.12.6** for modern data orchestration, providing a clean asset-centric approach with automatic data lineage tracking, scheduling capabilities, and comprehensive monitoring.
 
 ## Key Features
 
 - 🔄 **Dual Operation Modes**:
-  - **Ingestion**: One-time bulk import of all packages from registries (~5M total packages)
+  - **Ingestion**: Bulk import from registries for most ecosystems; cursor-based incremental for Go (~5.23M+ total packages)
   - **Updates**: Daily incremental updates for existing packages
 
-- 📊 **6 Package Ecosystems**: PyPI, NPM, Maven, NuGet, Cargo, RubyGems
+- 📊 **7 Package Ecosystems**: PyPI, NPM, Maven, NuGet, Cargo, RubyGems, Go
 - 🗄️ **Graph Storage**: Neo4j for package relationships and dependency graphs
 - 🔐 **Vulnerability Tracking**: MongoDB for security advisories
 - 🔍 **Import Names Extraction**: Automatic extraction of importable modules/classes for all packages
@@ -28,26 +28,27 @@ Built with **Dagster 1.11.13** for modern data orchestration, providing a clean 
 
 ## Tech Stack
 
-- **Dagster 1.11.13** - Modern data orchestrator with web UI
+- **Dagster 1.12.6** - Modern data orchestrator with web UI
 - **Python 3.13** - Runtime environment with JIT compiler and improved performance
 - **UV** - Ultra-fast Python package manager (10-100x faster than pip)
 - **Neo4j** - Graph database for package relationships
 - **MongoDB** - Document database for vulnerability data
-- **Redis 7** - Message queue and stream processing for asynchronous package extraction
-- **PostgreSQL 18** - Dagster metadata storage
+- **Redis 7** - Message queue, stream processing, and ingestion cursor storage
+- **PostgreSQL 17** - Dagster metadata storage
 - **Docker** - Containerization platform
 
 ## Docker Services
 
 This project runs **4 containerized services**:
 
-1. **dagster-postgres** (postgres:18)
+1. **dagster-postgres** (postgres:17)
    - Stores Dagster metadata (runs, events, schedules)
    - Port: 5432 (internal)
    - Volume: `dagster_postgres_data`
 
 2. **redis** (redis:7-alpine)
    - Message queue for asynchronous package extraction
+   - Cursor storage for resumable Go ingestion
    - Port: 6379 (exposed)
    - Volume: `redis_data`
    - Persistence: AOF (Append Only File) enabled
@@ -86,7 +87,7 @@ The containerized databases will be seeded automatically.
 
 ```bash
 # 1. Configure environment
-cp .env .env.template
+cp .env.template .env
 nano .env  # Update passwords and connection strings
 
 # 2. Start all services (Dagster + Redis)
@@ -115,7 +116,7 @@ Open http://localhost:3000 to access the Dagster UI.
 - ✅ Neo4j (Graph database)
 - ✅ MongoDB (Vulnerability database)
 - ✅ PostgreSQL (Dagster metadata)
-- ✅ Redis (Message queue)
+- ✅ Redis (Message queue + cursor store)
 - ✅ Dagster Daemon (Scheduler)
 - ✅ Dagster Webserver (UI)
 
@@ -133,8 +134,11 @@ One-time bulk ingestion of all packages from registries. Run these manually when
 | `nuget_package_ingestion` | .NET | Sun 5:00 AM | ~400k | Ingests all NuGet packages |
 | `cargo_package_ingestion` | Rust | Sun 6:00 AM | ~150k | Ingests all Cargo crates |
 | `rubygems_package_ingestion` | Ruby | Sun 7:00 AM | ~180k | Ingests all RubyGems |
+| `go_package_ingestion` | Go | Sun 8:00 AM | ~500k+ | Cursor-based incremental ingestion from index.golang.org |
 
-**Total Packages**: ~5.73 million packages across all ecosystems
+**Total Packages**: ~5.23 million packages across all ecosystems (Go volume grows continuously)
+
+> **Go ingestion is resumable**: the asset stores a timestamp cursor in Redis under the key `go_ingestion_cursor`. Each run continues from where the previous one stopped, defaulting to the Go proxy launch date (`2019-04-10`) on first run. The cursor is updated after every successful batch.
 
 ### Update Assets (Daily - RUNNING by default)
 
@@ -148,6 +152,7 @@ Daily incremental updates for existing packages in the graph. These run automati
 | `cargo_packages_updates` | Rust | Daily 4:00 PM | Updates Rust crates from crates.io |
 | `rubygems_packages_updates` | Ruby | Daily 6:00 PM | Updates Ruby gems from RubyGems |
 | `nuget_packages_updates` | .NET | Daily 8:00 PM | Updates .NET packages from NuGet |
+| `go_packages_updates` | Go | Daily 9:00 PM | Updates Go module versions from proxy.golang.org |
 
 ### Redis Queue Processor (Every 5 minutes - RUNNING by default)
 
@@ -158,9 +163,9 @@ Asynchronous package processing by consuming extraction messages from Redis queu
 | `redis_queue_processor` | Queue Processing | Every 5 min | Reads package extraction messages from Redis and routes to appropriate extractors |
 
 **How it works**:
-1. Reads messages from Redis stream (`package_extraction`) in batches of 100
+1. Reads messages from Redis stream (`package-extraction`) in batches of 100
 2. Validates each message using `PackageMessageSchema`
-3. Routes to the correct extractor based on `node_type` (PyPIPackage, NPMPackage, etc.)
+3. Routes to the correct extractor based on `node_type` (PyPIPackage, NPMPackage, GoPackage, etc.)
 4. Acknowledges successful processing or moves failed messages to dead-letter queue
 5. Reports metrics: processed, successful, failed, validation errors, unsupported types
 
@@ -178,7 +183,7 @@ All schedules can be enabled/disabled individually from the Dagster UI (`Automat
 
 ```
 ┌─────────────────┐
-│ Package Registry│  (PyPI, NPM, Maven, NuGet, Cargo, RubyGems)
+│ Package Registry│  (PyPI, NPM, Maven, NuGet, Cargo, RubyGems, Go)
 └────────┬────────┘
          │ HTTP API
          ↓
@@ -187,6 +192,7 @@ All schedules can be enabled/disabled individually from the Dagster UI (`Automat
 └────────┬────────┘
          │
          ├─→ Ingestion: Fetch all → Check existence → Extract if new
+         │   Go: cursor-based  → fetch batch since timestamp → process → advance cursor
          │
          ├─→ Update: Batch read existing → Fetch versions → Update nodes
          │
@@ -196,9 +202,10 @@ All schedules can be enabled/disabled individually from the Dagster UI (`Automat
          │
          ↓
 ┌─────────────────────┐
-│ Redis Stream        │  (package_extraction)
+│ Redis Stream        │  (package-extraction)
 │ - Messages queued   │
 │ - Consumer group    │
+│ - Go cursor key     │
 └────────┬────────────┘
          │ Every 5 minutes
          ↓
@@ -215,7 +222,8 @@ All schedules can be enabled/disabled individually from the Dagster UI (`Automat
          ├─→ MavenPackageExtractor
          ├─→ NuGetPackageExtractor
          ├─→ CargoPackageExtractor
-         └─→ RubyGemsPackageExtractor
+         ├─→ RubyGemsPackageExtractor
+         └─→ GoPackageExtractor
          │
          ↓
 ┌─────────────────┐
@@ -238,7 +246,7 @@ All schedules can be enabled/disabled individually from the Dagster UI (`Automat
 ```
 
 **Error Handling**:
-- Validation errors → Dead-letter queue (`package_extraction-dlq`)
+- Validation errors → Dead-letter queue (`package-extraction-dlq`)
 - Unsupported types → Dead-letter queue with error details
 - Processing failures → Dead-letter queue for manual review
 
@@ -294,6 +302,15 @@ Each ecosystem has unique characteristics handled by specialized API clients wit
 - **Volume**: ~180,000 gems
 - **Endpoint**: `https://index.rubygems.org/names`
 
+#### Go (Go modules)
+- **Method**: Cursor-based streaming from `index.golang.org`
+- **Extraction**: NDJSON feed with `?since=<timestamp>` pagination (2,000 per batch)
+- **Optimization**: Pseudo-version filtering (only tagged releases processed unless no tags exist); latest-version-only go.mod resolution reduces transitive dependency work from O(versions) to O(1) per package; cycle guard via `_IN_PROGRESS` set prevents re-entrant calls on circular dependency graphs
+- **Volume**: ~500,000+ modules (index grows continuously)
+- **Key Feature**: Fully resumable — cursor persisted in Redis; safe to interrupt and restart at any point
+- **Dependency resolution**: Parses `require` blocks from `go.mod` files fetched via `proxy.golang.org/@v/{version}.mod`
+- **Endpoints**: `index.golang.org/index` (discovery) + `proxy.golang.org` (versions, go.mod, zip)
+
 ### Import Names Extraction
 
 All packages automatically extract **import_names** - the list of modules, classes, or namespaces that can be imported from each package. This enables dependency analysis and usage pattern detection.
@@ -308,6 +325,7 @@ All packages automatically extract **import_names** - the list of modules, class
 | **RubyGems** | `.gem` → `data.tar.gz` → `lib/*.rb` | Ruby module paths, converts to `::` format | `["rails", "rails::application", "rails::engine"]` |
 | **NuGet** | `.nupkg` (ZIP) → `.dll` files | DLL name extraction + `.nuspec` parsing | `["Newtonsoft.Json", "System.Text.Json"]` |
 | **PyPI** | `.whl` or `.tar.gz` → `.py` files | Python module discovery from `__init__.py` | `["requests", "requests.api", "requests.models"]` |
+| **Go** | `.zip` (proxy) → `.go` files | Directory enumeration excluding `_test.go`; each dir with a `.go` file becomes an import path | `["github.com/gin-gonic/gin", "github.com/gin-gonic/gin/binding"]` |
 
 ## Useful Commands
 
@@ -393,6 +411,10 @@ docker compose exec redis redis-cli INFO memory
 
 # View all keys in Redis
 docker compose exec redis redis-cli KEYS '*'
+
+# Inspect or reset the Go ingestion cursor
+docker compose exec redis redis-cli GET go_ingestion_cursor
+docker compose exec redis redis-cli DEL go_ingestion_cursor  # resets to launch date on next run
 ```
 
 ### Running Assets
@@ -405,6 +427,10 @@ docker compose exec dagster-webserver \
 # Run a bulk ingestion asset (Warning: can take hours!)
 docker compose exec dagster-webserver \
   dagster asset materialize -m src.dagster_app -a pypi_package_ingestion
+
+# Run Go ingestion (resumes from last cursor)
+docker compose exec dagster-webserver \
+  dagster asset materialize -m src.dagster_app -a go_package_ingestion
 
 # Process Redis queue manually
 docker compose exec dagster-webserver \
@@ -425,28 +451,31 @@ docker compose exec dagster-webserver \
 # All commands run inside the Redis container
 
 # Check number of messages in queue
-docker compose exec redis redis-cli XLEN package_extraction
+docker compose exec redis redis-cli XLEN package-extraction
 
 # Check number of messages in dead-letter queue
-docker compose exec redis redis-cli XLEN package_extraction-dlq
+docker compose exec redis redis-cli XLEN package-extraction-dlq
 
 # View consumer group info
-docker compose exec redis redis-cli XINFO GROUPS package_extraction
+docker compose exec redis redis-cli XINFO GROUPS package-extraction
 
 # Add a test message to queue
-docker compose exec redis redis-cli XADD package_extraction '*' data '{"node_type":"PyPIPackage","package":"requests","vendor":"Kenneth Reitz"}'
+docker compose exec redis redis-cli XADD package-extraction '*' data '{"node_type":"PyPIPackage","package":"requests","vendor":"Kenneth Reitz"}'
+
+# Add a Go package message to queue
+docker compose exec redis redis-cli XADD package-extraction '*' data '{"node_type":"GoPackage","package":"github.com/gin-gonic/gin"}'
 
 # Read messages from dead-letter queue
-docker compose exec redis redis-cli XREAD COUNT 10 STREAMS package_extraction-dlq 0
+docker compose exec redis redis-cli XREAD COUNT 10 STREAMS package-extraction-dlq 0
 
 # View pending messages in consumer group
-docker compose exec redis redis-cli XPENDING package_extraction extractors
+docker compose exec redis redis-cli XPENDING package-extraction extractors
 
 # Clear all messages from queue (be careful!)
-docker compose exec redis redis-cli DEL package_extraction
+docker compose exec redis redis-cli DEL package-extraction
 
 # Clear dead-letter queue
-docker compose exec redis redis-cli DEL package_extraction-dlq
+docker compose exec redis redis-cli DEL package-extraction-dlq
 ```
 
 ### Development
@@ -470,54 +499,109 @@ docker compose exec dagster-webserver \
 
 ```
 securechain-ssc-ingestion/
-├── dagster_home/           # Dagster configuration
-│   ├── dagster.yaml       # Storage & compute config
-│   ├── workspace.yaml     # Module loading config
-│   └── storage/           # Run history and event logs
+├── dagster_home/                    # Dagster runtime configuration
+│   ├── dagster.yaml                 # PostgreSQL storage, launchers, coordinators
+│   └── workspace.yaml               # Module loading: src.dagster_app
 ├── src/
-│   ├── dagster_app/       # Dagster application
-│   │   ├── __init__.py    # Main definitions (exports `defs`)
-│   │   ├── assets/        # Asset definitions
+│   ├── __init__.py
+│   ├── dagster_app/                 # Dagster application layer
+│   │   ├── __init__.py              # Exports `defs` (Definitions with assets + schedules)
+│   │   ├── assets/                  # Dagster asset definitions
+│   │   │   ├── __init__.py          # Imports and re-exports all assets
 │   │   │   ├── pypi_assets.py       # PyPI ingestion + updates
 │   │   │   ├── npm_assets.py        # NPM ingestion + updates
 │   │   │   ├── maven_assets.py      # Maven ingestion + updates
 │   │   │   ├── nuget_assets.py      # NuGet ingestion + updates
 │   │   │   ├── cargo_assets.py      # Cargo ingestion + updates
 │   │   │   ├── rubygems_assets.py   # RubyGems ingestion + updates
-│   │   │   └── redis_queue_assets.py # Redis queue processor
-│   │   ├── resources/     # ConfigurableResource definitions
-│   │   │   └── __init__.py          # 10 resources (APIs, DB services)
-│   │   └── schedules.py   # 13 schedules (6 ingestion + 6 updates + 1 queue)
-│   ├── processes/         # Business logic (Dagster-agnostic)
-│   │   ├── extractors/    # Package extractors for each ecosystem
-│   │   └── updaters/      # Version updaters for each ecosystem
-│   ├── services/          # External service clients
-│   │   ├── apis/          # Registry API clients (PyPI, NPM, etc.)
-│   │   ├── dbs/           # Database service abstractions
-│   │   ├── graph/         # Neo4j service (package storage)
-│   │   └── vulnerability/ # MongoDB service (CVE data)
-│   ├── schemas/           # Pydantic data models
+│   │   │   ├── go_assets.py         # Go ingestion + updates (cursor-based)
+│   │   │   └── redis_queue_assets.py # Redis stream queue processor
+│   │   └── schedules.py             # 15 schedules (7 ingestion + 7 updates + 1 queue)
+│   ├── processes/                   # Business logic (Dagster-agnostic)
+│   │   ├── extractors/              # Package creation + dependency resolution
+│   │   │   ├── __init__.py
+│   │   │   ├── base.py              # Abstract PackageExtractor base class
+│   │   │   ├── pypi_extractor.py
+│   │   │   ├── npm_extractor.py
+│   │   │   ├── maven_extractor.py
+│   │   │   ├── nuget_extractor.py
+│   │   │   ├── cargo_extractor.py
+│   │   │   ├── rubygems_extractor.py
+│   │   │   └── go_extractor.py      # Depth-capped + cycle-guarded
+│   │   └── updaters/                # Version synchronisation per ecosystem
+│   │       ├── __init__.py
+│   │       ├── pypi_version_updater.py
+│   │       ├── npm_version_updater.py
+│   │       ├── maven_version_updater.py
+│   │       ├── nuget_version_updater.py
+│   │       ├── cargo_version_updater.py
+│   │       ├── rubygems_version_updater.py
+│   │       └── go_version_updater.py
+│   ├── services/                    # External service clients
+│   │   ├── __init__.py
+│   │   ├── apis/                    # Registry HTTP clients
+│   │   │   ├── __init__.py
+│   │   │   ├── pypi_service.py
+│   │   │   ├── npm_service.py
+│   │   │   ├── maven_service.py
+│   │   │   ├── nuget_service.py
+│   │   │   ├── cargo_service.py
+│   │   │   ├── rubygems_service.py
+│   │   │   └── go_service.py        # index.golang.org + proxy.golang.org
+│   │   ├── graph/                   # Neo4j graph database layer
+│   │   │   ├── __init__.py
+│   │   │   ├── package_service.py   # CRUD for Package nodes
+│   │   │   └── version_service.py   # CRUD for Version nodes
+│   │   └── vulnerability/           # MongoDB CVE data layer
+│   │       ├── __init__.py
+│   │       └── vulnerability_service.py
+│   ├── schemas/                     # Pydantic data models
+│   │   ├── __init__.py
 │   │   ├── pypi_package_schema.py
 │   │   ├── npm_package_schema.py
 │   │   ├── maven_package_schema.py
 │   │   ├── nuget_package_schema.py
 │   │   ├── cargo_package_schema.py
 │   │   ├── rubygems_package_schema.py
-│   │   └── package_message_schema.py # Redis message schema
-│   ├── utils/             # Helper functions
-│   │   ├── redis_queue.py          # Redis stream management
-│   │   ├── repo_normalizer.py      # URL normalization
-│   │   └── pypi_constraints_parser.py
-│   ├── logger.py          # Custom logging configuration
-│   ├── session.py         # HTTP session management
-│   ├── cache.py           # Caching utilities (1hr TTL)
-│   └── settings.py        # Pydantic Settings (env vars)
-├── docker-compose.yml     # 4 services (postgres, redis, daemon, webserver)
-├── Dockerfile             # Multi-stage build with UV
-├── pyproject.toml         # Project configuration and dependencies
-├── .env.template           # Environment variable template
-├── .env                   # Local configuration (gitignored)
-└── CLAUDE.md              # AI agent context documentation
+│   │   ├── go_package_schema.py
+│   │   └── package_message_schema.py # Redis message contract
+│   ├── utils/                       # Shared utilities
+│   │   ├── __init__.py
+│   │   ├── attributor.py            # CVE attribution for versions
+│   │   ├── orderer.py               # Semantic version sorting
+│   │   ├── redis_queue.py           # Redis stream read/ack/DLQ
+│   │   ├── repo_normalizer.py       # Repository URL normalisation
+│   │   ├── pypi_constraints_parser.py
+│   │   └── maven/                   # Maven-specific extraction tooling
+│   │       ├── Dockerfile.maven     # coady/pylucene:9 + Java 17
+│   │       └── automate_maven_extraction.py
+│   ├── __init__.py
+│   ├── cache.py                     # aiocache in-memory cache manager
+│   ├── database.py                  # Neo4j + MongoDB connection pool (singleton)
+│   ├── dependencies.py              # ServiceContainer + module-level getters
+│   ├── logger.py                    # Rotating file logger (singleton)
+│   ├── session.py                   # aiohttp ClientSession manager
+│   └── settings.py                  # Pydantic Settings (reads .env)
+├── tests/
+│   └── unit/
+│       ├── extractors/
+│       │   └── test_go_extractor.py
+│       ├── schemas/
+│       │   └── test_go_package_schema.py
+│       ├── services/
+│       │   └── test_go_service.py
+│       └── updaters/
+│           └── test_go_version_updater.py
+├── docker-compose.yml               # 4 services: postgres, redis, daemon, webserver
+├── Dockerfile                       # Multi-stage UV build
+├── pyproject.toml                   # Dependencies + Ruff + Hatch config
+├── .env.template                    # Environment variable template
+├── .env                             # Local configuration (gitignored)
+├── .github/
+│   └── workflows/
+│       ├── lint-test.yml            # Ruff linter on push/PR
+│       └── release.yml              # Multi-arch Docker image + GitHub Release on tag
+└── CLAUDE.md                        # AI agent context documentation
 ```
 
 ## Configuration
@@ -534,20 +618,18 @@ GRAPH_DB_USER='neo4j'
 GRAPH_DB_PASSWORD='your-secure-password'  # Change in production!
 
 # MongoDB (Vulnerability database)
-VULN_DB_URI='mongodb://user:pass@mongo:27017/admin'
-VULN_DB_USER='mongoSecureChain'
-VULN_DB_PASSWORD='your-secure-password'  # Change in production!
+VULN_DB_URI='mongodb://mongoSecureChain:mongoSecureChain@mongo:27017/admin'
 ```
 
 #### Redis Queue Configuration
 
-Redis is used for asynchronous package extraction and runs as a Docker service. The `redis_queue_processor` asset consumes messages from the stream every 5 minutes.
+Redis is used for asynchronous package extraction and runs as a Docker service. The `redis_queue_processor` asset consumes messages from the stream every 5 minutes. Redis also stores the Go ingestion cursor under the key `go_ingestion_cursor`.
 
 ```bash
 REDIS_HOST=redis                  # Redis service name in docker-compose
 REDIS_PORT=6379                   # Redis server port
 REDIS_DB=0                        # Redis database number
-REDIS_STREAM=package_extraction   # Stream name for messages
+REDIS_STREAM=package-extraction   # Stream name for messages
 REDIS_GROUP=extractors            # Consumer group name
 REDIS_CONSUMER=package-consumer   # Consumer identifier (generic, not ecosystem-specific)
 ```
@@ -558,8 +640,9 @@ REDIS_CONSUMER=package-consumer   # Consumer identifier (generic, not ecosystem-
 - ✅ Health checks enabled
 - ✅ Volume mount for data persistence (`redis_data`)
 - ✅ Exposed on port 6379 for external access if needed
+- ✅ Stores Go ingestion cursor for resumable incremental ingestion
 
-**Note**: The consumer name was changed from `pypi-consumer` to `package-consumer` to reflect support for all 6 package ecosystems.
+**Note**: The consumer name was changed from `pypi-consumer` to `package-consumer` to reflect support for all 7 package ecosystems.
 
 #### Dagster PostgreSQL
 ```bash
@@ -586,6 +669,7 @@ All configuration is managed through the `Settings` class in `src/settings.py` u
 - **Rate Limiting**: Built-in delays to respect API limits
 - **Memory**: Maven deduplication uses set-based approach for efficiency
 - **Caching**: 1-hour TTL on package listings to reduce API calls
+- **Go**: Cursor-based batching (2,000 modules/batch) avoids loading the full index in memory; pseudo-version filtering and latest-version-only go.mod resolution significantly reduce network calls
 
 ### Update Assets
 - **Duration**: Typically completes in minutes to hours
@@ -609,12 +693,20 @@ Access real-time monitoring and management:
 
 Each asset reports comprehensive metrics:
 
-**Ingestion Assets**:
+**Ingestion Assets** (PyPI, NPM, Maven, NuGet, Cargo, RubyGems):
 - `total_in_registry`: Total packages found in registry
 - `new_packages_ingested`: New packages added to graph
 - `skipped_existing`: Packages already in graph
 - `errors`: Failed ingestions
 - `ingestion_rate`: Percentage of new packages
+
+**Go Ingestion Asset** (cursor-based, different metric set):
+- `total_scanned`: Total modules scanned across all index batches
+- `new_packages_ingested`: New modules added to graph
+- `skipped_existing`: Modules already in graph
+- `errors`: Failed ingestions
+- `cursor_start`: Timestamp cursor at the start of the run
+- `cursor_end`: Timestamp cursor at the end of the run (persisted in Redis)
 
 **Update Assets**:
 - `packages_processed`: Total packages updated
@@ -662,7 +754,7 @@ docker compose exec redis redis-cli ping
 # Restart Redis
 docker compose restart redis
 
-# Remove Redis data and restart (WARNING: clears all messages)
+# Remove Redis data and restart (WARNING: clears all messages AND Go cursor)
 docker compose down -v
 docker compose up -d
 ```
@@ -673,7 +765,7 @@ docker compose up -d
 docker compose exec dagster-webserver \
   python -c "from src.dagster_app import defs; print(len(defs.get_asset_graph().get_all_asset_keys()))"
 
-# Should print 13 (6 ingestion + 6 update + 1 queue processor)
+# Should print 15 (7 ingestion + 7 update + 1 queue processor)
 ```
 
 **Database connection errors**
@@ -695,22 +787,34 @@ docker network inspect securechain | grep redis
 cat .env | grep REDIS
 
 # If consumer group doesn't exist, create it:
-docker compose exec redis redis-cli XGROUP CREATE package_extraction extractors 0 MKSTREAM
+docker compose exec redis redis-cli XGROUP CREATE package-extraction extractors 0 MKSTREAM
 
 # Check consumer group status
-docker compose exec redis redis-cli XINFO GROUPS package_extraction
+docker compose exec redis redis-cli XINFO GROUPS package-extraction
+```
+
+**Go ingestion not advancing / cursor issues**
+```bash
+# Check current cursor value
+docker compose exec redis redis-cli GET go_ingestion_cursor
+
+# Reset cursor to restart ingestion from the beginning
+docker compose exec redis redis-cli DEL go_ingestion_cursor
+
+# Force cursor to a specific date (RFC3339 format)
+docker compose exec redis redis-cli SET go_ingestion_cursor "2024-01-01T00:00:00Z"
 ```
 
 **Messages stuck in dead-letter queue**
 ```bash
 # Check DLQ length
-docker compose exec redis redis-cli XLEN package_extraction-dlq
+docker compose exec redis redis-cli XLEN package-extraction-dlq
 
 # Read messages from DLQ
-docker compose exec redis redis-cli XREAD COUNT 10 STREAMS package_extraction-dlq 0
+docker compose exec redis redis-cli XREAD COUNT 10 STREAMS package-extraction-dlq 0
 
 # Clear DLQ if needed (after fixing issues)
-docker compose exec redis redis-cli DEL package_extraction-dlq
+docker compose exec redis redis-cli DEL package-extraction-dlq
 ```
 
 **Port 3000 already in use**
@@ -723,8 +827,8 @@ ports:
 **Redis consumer group errors**
 ```bash
 # If you changed REDIS_CONSUMER, recreate the group:
-redis-cli XGROUP DESTROY package_extraction extractors
-redis-cli XGROUP CREATE package_extraction extractors 0 MKSTREAM
+redis-cli XGROUP DESTROY package-extraction extractors
+redis-cli XGROUP CREATE package-extraction extractors 0 MKSTREAM
 ```
 
 ## Development Workflow
@@ -739,17 +843,17 @@ redis-cli XGROUP CREATE package_extraction extractors 0 MKSTREAM
 
 ### Adding New Package Ecosystem
 
-See `CLAUDE.md` for detailed instructions on adding support for new package registries. Summary:
+See `CLAUDE.md` for detailed instructions on adding support for new package registries. Note: `CLAUDE.md` predates the Go integration and still references 6 ecosystems and 12 assets — refer to the actual source files for the current state. Summary:
 
 1. Create API service in `src/services/apis/`
 2. Create schema in `src/schemas/`
 3. Create extractor in `src/processes/extractors/`
 4. Create updater in `src/processes/updaters/`
 5. Create assets in `src/dagster_app/assets/`
-6. Create resource in `src/dagster_app/resources/`
-7. Add schedules in `src/dagster_app/schedules.py`
-8. Update imports in `__init__.py` files
-9. Add extractor mapping in `redis_queue_assets.py` for queue processing
+6. Add schedules in `src/dagster_app/schedules.py`
+7. Update imports in `__init__.py` files
+8. Add extractor mapping in `redis_queue_assets.py` for queue processing
+9. Register service getter in `src/dependencies.py`
 
 ### Working with Redis Queue
 
@@ -774,10 +878,61 @@ message = {
 }
 
 # Add to stream
-r.xadd("package_extraction", {"data": json.dumps(message)})
+r.xadd("package-extraction", {"data": json.dumps(message)})
+
+# Go package example
+go_message = {
+    "node_type": "GoPackage",
+    "package": "github.com/gin-gonic/gin",
+}
+r.xadd("package-extraction", {"data": json.dumps(go_message)})
 ```
 
 The `redis_queue_processor` will pick up the message in the next run (every 5 minutes).
+
+## Testing
+
+The project uses **pytest** with **pytest-asyncio** for unit tests. Tests are located in `tests/unit/` and cover the Go ecosystem implementation. All other ecosystem tests follow the same patterns.
+
+### Running Tests
+
+```bash
+# Run all tests
+uv run pytest
+
+# Run with verbose output
+uv run pytest -v
+
+# Run a specific test file
+uv run pytest tests/unit/services/test_go_service.py -v
+
+# Run a specific test
+uv run pytest tests/unit/extractors/test_go_extractor.py::test_cycle_protection_stops_infinite_recursion -v
+
+# Run tests in Docker
+docker compose exec dagster-webserver uv run pytest tests/
+```
+
+### Test Structure
+
+```
+tests/
+└── unit/
+    ├── extractors/
+    │   └── test_go_extractor.py      # GoPackageExtractor: run, cycle protection,
+    │                                  # dependency resolution, latest-version-only logic
+    ├── schemas/
+    │   └── test_go_package_schema.py  # GoPackageSchema: defaults, to_dict, whitespace
+    ├── services/
+    │   └── test_go_service.py         # GoService: NDJSON parsing, version fetching,
+    │                                  # cursor pagination, go.mod parsing, import names
+    └── updaters/
+        └── test_go_version_updater.py # GoVersionUpdater: delta detection, version sync
+```
+
+### CI
+
+Tests and linting run automatically on every push and pull request via GitHub Actions (`.github/workflows/lint-test.yml`). The workflow runs **Ruff** for linting and **pytest** for tests using Python 3.13 and UV.
 
 ## Contributing
 
