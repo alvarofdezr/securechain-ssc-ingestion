@@ -1,14 +1,22 @@
 from __future__ import annotations
 
+from asyncio import Semaphore
 from datetime import datetime
 from typing import Any
 
+from src.logger import logger
 from src.schemas import GoPackageSchema
 from src.services import PackageService, VersionService
 from src.services.apis.go_service import GoService
 from src.utils import Attributor
 
 from .base import PackageExtractor
+
+_MAX_DEPTH = 2
+
+_GO_SEMAPHORE = Semaphore(10)
+
+_IN_PROGRESS: set[str] = set()
 
 
 class GoPackageExtractor(PackageExtractor):
@@ -21,10 +29,9 @@ class GoPackageExtractor(PackageExtractor):
     recursively resolving transitive dependencies by parsing the go.mod for
     each ingested version.
 
-    Inherits common constraint, parent linkage, and refresh handling from
-    PackageExtractor. The go_service dependency is injected rather than
-    instantiated internally to allow sharing a single client instance across
-    multiple extractor calls within the same Dagster asset run.
+    Recursion is capped at _MAX_DEPTH to prevent infinite traversal of Go's
+    dense dependency graph. A module-level semaphore throttles concurrent
+    proxy requests across all extractor instances in a run.
     """
 
     def __init__(
@@ -34,37 +41,18 @@ class GoPackageExtractor(PackageExtractor):
         version_service: VersionService,
         go_service: GoService,
         attributor: Attributor,
+        _depth: int = 0,
         **kwargs: Any,
     ) -> None:
-        """
-        Initialise the extractor with all required service dependencies.
-
-        Args:
-            package:         Schema instance carrying the module name and
-                             pre-populated metadata for the root package.
-            package_service: Service for graph-level package CRUD operations.
-            version_service: Service for graph-level version CRUD operations.
-            go_service:      HTTP client for the Go proxy and index APIs.
-            attributor:      Utility that enriches version dicts with CVE
-                             attribution data from the vulnerability service.
-            **kwargs:        Forwarded to PackageExtractor for constraint,
-                             parent_id, parent_version, and refresh fields.
-        """
         super().__init__(**kwargs)
         self.package = package
         self.package_service = package_service
         self.version_service = version_service
         self.go_service = go_service
         self.attributor = attributor
+        self._depth = _depth
 
     async def run(self) -> None:
-        """
-        Entry point for the extraction pipeline.
-
-        Triggers the full create-and-link flow for the root package carried
-        by this extractor instance, applying any constraints and parent linkage
-        provided at construction time.
-        """
         await self.create_package(
             self.package.name,
             self.constraints,
@@ -79,25 +67,28 @@ class GoPackageExtractor(PackageExtractor):
         parent_version_name: str | None = None,
     ) -> None:
         """
-        Process a batch of module requirements and link them to a parent version
-        node in the graph.
+        Process a batch of module requirements and link them to a parent version.
 
-        For each (module_path, version_constraint) pair, checks whether the
-        package already exists in the graph. Known packages are collected and
-        bulk-related to the parent in a single service call to minimise
-        round-trips. Unknown packages are individually created and linked via
-        create_package.
-
-        Args:
-            requirement:         Mapping of module paths to version constraint
-                                 strings as parsed from a go.mod file.
-            parent_id:           Graph node ID of the parent version that
-                                 declares these requirements.
-            parent_version_name: Version string of the parent, used to establish
-                                 the directed dependency edge.
+        Known packages are bulk-related; unknown packages are created individually
+        only when the current depth is below _MAX_DEPTH to prevent unbounded
+        recursive traversal.
         """
-        known_packages: list[dict[str, Any]] = []
+        if self._depth >= _MAX_DEPTH:
+            known_packages: list[dict[str, Any]] = []
+            for package_name, constraints in requirement.items():
+                package = await self.package_service.read_package_by_name(
+                    "GoPackage", package_name
+                )
+                if package:
+                    package["parent_id"] = parent_id
+                    package["parent_version_name"] = parent_version_name
+                    package["constraints"] = constraints
+                    known_packages.append(package)
+            if known_packages:
+                await self.package_service.relate_packages("GoPackage", known_packages)
+            return
 
+        known_packages = []
         for package_name, constraints in requirement.items():
             package = await self.package_service.read_package_by_name(
                 "GoPackage", package_name
@@ -122,91 +113,97 @@ class GoPackageExtractor(PackageExtractor):
         parent_version_name: str | None = None,
     ) -> None:
         """
-        Fetch, attribute, and persist a Go module package with all its versions.
+        Fetch, attribute, and persist a Go module with all its versions.
 
-        Retrieves the ordered version list from the proxy, attributes CVE data
-        to each version, constructs the GoPackageSchema, and delegates
-        persistence to PackageService. For each successfully created version
-        the transitive dependency extraction is triggered to build the deeper
-        dependency graph.
-
-        Packages with no discoverable versions (e.g. retracted modules or
-        private repositories not served by the proxy) are silently skipped
-        to avoid creating orphan nodes in the graph.
-
-        Args:
-            package_name:        Canonical module path.
-            constraints:         Version constraint string from the parent
-                                 go.mod, or None for the root package.
-            parent_id:           Graph node ID of the declaring parent version,
-                                 or None for root-level packages.
-            parent_version_name: Version string of the parent, or None.
+        Uses the module-level semaphore to throttle proxy requests. Packages
+        with no discoverable versions are silently skipped. A module-level
+        _IN_PROGRESS set prevents re-entrant calls for the same package,
+        guarding against circular dependency graphs independently of the
+        depth cap.
         """
-        versions = await self.go_service.get_versions(package_name)
-        if not versions:
+        if package_name in _IN_PROGRESS:
+            logger.debug(f"Go - [{package_name}] Already in progress, skipping to prevent cycle.")
             return
+        _IN_PROGRESS.add(package_name)
 
-        repository_url = self.go_service.get_repo_url(package_name)
-        parts = package_name.split("/")
-        vendor = parts[0] if parts else "n/a"
-        
-        latest_version = versions[-1]["name"]
-        import_names = await self.go_service.get_import_names(package_name, latest_version)
+        try:
+            async with _GO_SEMAPHORE:
+                versions = await self.go_service.get_versions(package_name)
 
-        attributed_versions = [
-            await self.attributor.attribute_vulnerabilities(package_name, version)
-            for version in versions
-        ]
+            if not versions:
+                return
 
-        pkg = GoPackageSchema(
-            name=package_name,
-            vendor=vendor,
-            repository_url=repository_url,
-            moment=datetime.now(),
-            import_names=import_names,
-        )
+            repository_url = self.go_service.get_repo_url(package_name)
+            parts = package_name.split("/")
+            vendor = parts[0] if parts else "n/a"
 
-        created_versions = await self.package_service.create_package_and_versions(
-            "GoPackage",
-            pkg.to_dict(),
-            attributed_versions,
-            constraints,
-            parent_id,
-            parent_version_name,
-        )
+            latest_version = versions[-1]["name"]
 
-        for created_version in created_versions:
-            await self.extract_packages(package_name, created_version)
+            async with _GO_SEMAPHORE:
+                import_names = await self.go_service.get_import_names(
+                    package_name, latest_version
+                )
 
-        await self.version_service.update_versions_serial_number(
-            "GoPackage", package_name, versions
-        )
-        await self.package_service.update_package_moment("GoPackage", package_name)
+            attributed_versions = [
+                await self.attributor.attribute_vulnerabilities(package_name, version)
+                for version in versions
+            ]
+
+            pkg = GoPackageSchema(
+                name=package_name,
+                vendor=vendor,
+                repository_url=repository_url,
+                moment=datetime.now(),
+                import_names=import_names,
+            )
+
+            created_versions = await self.package_service.create_package_and_versions(
+                "GoPackage",
+                pkg.to_dict(),
+                attributed_versions,
+                constraints,
+                parent_id,
+                parent_version_name,
+            )
+
+            if self._depth < _MAX_DEPTH and created_versions:
+                latest_created = created_versions[-1]
+                await self.extract_packages(package_name, latest_created)
+
+            await self.version_service.update_versions_serial_number(
+                "GoPackage", package_name, versions
+            )
+            await self.package_service.update_package_moment("GoPackage", package_name)
+        finally:
+            _IN_PROGRESS.discard(package_name)
 
     async def extract_packages(
         self, parent_package_name: str, version: dict[str, Any]
     ) -> None:
         """
-        Resolve and ingest the direct dependencies declared in a specific
-        version's go.mod file.
+        Resolve and ingest the direct dependencies declared in a version's go.mod.
 
-        Fetches the go.mod for the given version from the proxy, parses its
-        require directives, and delegates to generate_packages to create or
-        link the dependency nodes. This is the recursive step that builds the
-        transitive dependency graph.
-
-        Args:
-            parent_package_name: Module path of the package whose go.mod is
-                                 being resolved.
-            version:             Version descriptor dict containing at least
-                                 'name' (version string) and 'id' (graph node ID).
+        Creates a child extractor with depth incremented by one so that the
+        recursion cap is enforced at each level of the dependency tree.
         """
-        requirements = await self.go_service.get_package_requirements(
-            parent_package_name, version.get("name", "")
-        )
-        if requirements:
-            await self.generate_packages(
-                requirements,
-                version.get("id", ""),
-                parent_package_name,
+        async with _GO_SEMAPHORE:
+            requirements = await self.go_service.get_package_requirements(
+                parent_package_name, version.get("name", "")
             )
+
+        if not requirements:
+            return
+
+        child_extractor = GoPackageExtractor(
+            package=self.package,
+            package_service=self.package_service,
+            version_service=self.version_service,
+            go_service=self.go_service,
+            attributor=self.attributor,
+            _depth=self._depth + 1,
+        )
+        await child_extractor.generate_packages(
+            requirements,
+            version.get("id", ""),
+            parent_package_name,
+        )

@@ -188,3 +188,71 @@ def test_parse_go_mod_strips_indirect_comments(go_service: GoService):
     content = "require github.com/a/a v1.0.0 // indirect\n"
     deps = go_service._parse_go_mod(content)
     assert deps == {"github.com/a/a": "v1.0.0"}
+
+
+@pytest.mark.asyncio
+async def test_fetch_packages_since_returns_since_unchanged_on_empty_batch(go_service):
+    """
+    If the index returns an empty batch, the cursor should not advance, indicating
+    that we are fully caught up. This prevents unnecessary re-querying of the index
+    with the same cursor.
+    """
+    mock_session = MagicMock(spec=ClientSession)
+    mock_response = MagicMock()
+    mock_response.status = 200
+    mock_response.text = AsyncMock(return_value="")
+    mock_session.get.return_value.__aenter__.return_value = mock_response
+
+    since = "2024-01-01T00:00:00Z"
+    with patch("src.services.apis.go_service.get_session_manager") as mock_get_session:
+        mock_get_session.return_value = _mock_session_manager(mock_session)
+        packages, next_cursor = await go_service.fetch_packages_since(since)
+
+    assert packages == []
+    assert next_cursor == since 
+
+
+@pytest.mark.asyncio
+async def test_fetch_packages_since_advances_cursor(go_service):
+    """
+    Verifies that the cursor returned by fetch_packages_since is the latest
+    timestamp from the batch, which allows the ingestion process to continue
+    from where it left off.
+    """
+    mock_session = MagicMock(spec=ClientSession)
+    mock_response = MagicMock()
+    mock_response.status = 200
+    mock_response.text = AsyncMock(return_value=(
+        '{"Path": "github.com/a/a", "Version": "v1.0.0", "Timestamp": "2024-01-01T10:00:00Z"}\n'
+        '{"Path": "github.com/b/b", "Version": "v1.0.0", "Timestamp": "2024-01-01T11:00:00Z"}\n'
+    ))
+    mock_session.get.return_value.__aenter__.return_value = mock_response
+
+    since = "2024-01-01T00:00:00Z"
+    with patch("src.services.apis.go_service.get_session_manager") as mock_get_session:
+        mock_get_session.return_value = _mock_session_manager(mock_session)
+        packages, next_cursor = await go_service.fetch_packages_since(since)
+
+    assert set(packages) == {"github.com/a/a", "github.com/b/b"}
+    assert next_cursor == "2024-01-01T11:00:00Z"
+
+
+@pytest.mark.asyncio
+async def test_get_import_names_skips_oversized_zip(go_service):
+    """
+    Verifies that if the Content-Length of the zip file exceeds the defined
+    threshold, the method returns an empty list without attempting to read the
+    zip. This prevents memory issues and long processing times for very large modules.
+    """
+    mock_session = MagicMock(spec=ClientSession)
+    mock_response = MagicMock()
+    mock_response.status = 200
+    mock_response.headers = {"Content-Length": str(100 * 1024 * 1024)}  # 100 MB
+    mock_session.get.return_value.__aenter__.return_value = mock_response
+
+    with patch("src.services.apis.go_service.get_session_manager") as mock_get_session:
+        mock_get_session.return_value = _mock_session_manager(mock_session)
+        result = await go_service.get_import_names("github.com/big/module", "v1.0.0")
+
+    assert result == ["github.com/big/module"]
+    mock_response.read.assert_not_called()

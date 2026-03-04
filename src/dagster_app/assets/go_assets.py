@@ -9,7 +9,6 @@ from src.dependencies import (
     get_package_service,
     get_redis_queue,
     get_version_service,
-    get_cache_manager,
 )
 from src.logger import logger
 from src.processes.extractors import GoPackageExtractor
@@ -29,27 +28,28 @@ def go_package_ingestion(
     """
     Dagster asset that performs incremental, cursor-based ingestion of Go modules.
 
-    This asset fetches modules from the Go index (index.golang.org) that have
-    been published since the last successful run. It uses a timestamp (cursor)
-    stored in Redis to track its position in the index's chronological feed.
+    Fetches modules from the Go index (index.golang.org) published since the
+    last successful run. The cursor (a timestamp) is stored in Redis under
+    'go_ingestion_cursor' so it persists across container restarts and Dagster
+    runs without relying on /tmp (which is ephemeral in Docker).
 
-    On each run, it fetches the current cursor, queries the index for new
-    packages, and processes them in batches. If a batch is successful, the
-    cursor is updated to the timestamp of the last processed entry, making the
-    ingestion process resumable and avoiding redundant work. If no cursor is
-    found, it defaults to the Go proxy's launch date.
+    On each run the asset:
+    1. Reads the cursor from Redis (defaults to Go proxy launch date).
+    2. Fetches a batch of new module paths from the index.
+    3. Processes each path: skip if already in graph, otherwise extract.
+    4. Advances the cursor after each successful batch.
+    5. Repeats until the index is fully caught up (empty batch returned).
 
-    Returns:
-        An Output wrapping a stats dictionary and Dagster metadata for UI
-        observability, including the starting and ending cursor values.
+    The cursor only advances after a batch completes successfully, so a crash
+    mid-batch will reprocess that batch on the next run (safe due to MERGE in
+    the graph queries).
     """
     try:
         logger.info("Starting Go package ingestion process")
         go_svc = GoService()
-        redis = get_redis_queue()
-        cursor_key = "go_ingestion_cursor"
-        # The Go module proxy was launched on this date.
-        default_cursor = "2019-04-10T19:08:52.997264Z"
+
+        DEFAULT_CURSOR = "2019-04-10T19:08:52.997264Z"
+        CURSOR_KEY = "go_ingestion_cursor"
 
         async def _run() -> dict[str, Any]:
             await get_db().initialize()
@@ -57,27 +57,35 @@ def go_package_ingestion(
             package_svc = get_package_service()
             version_svc = get_version_service()
             attr = get_attributor()
+            redis = get_redis_queue()
 
             new_packages = 0
             skipped_packages = 0
             error_count = 0
-            total_packages = 0
+            total_scanned = 0
 
-            start_cursor = await redis.get(cursor_key) or default_cursor
+            start_cursor = redis.r.get(CURSOR_KEY) or DEFAULT_CURSOR
             current_cursor = start_cursor
+
             context.log.info(f"Go - Starting ingestion from cursor: {current_cursor}")
 
             while True:
                 package_names, next_cursor = await go_svc.fetch_packages_since(
                     current_cursor
                 )
-                if not package_names:
-                    context.log.info("Go - No new packages found. Ingestion caught up.")
+
+                if not package_names or next_cursor == current_cursor:
+                    context.log.info(
+                        "Go - No new packages found. Index is fully caught up."
+                    )
                     break
 
                 batch_size = len(package_names)
-                total_packages += batch_size
-                context.log.info(f"Go - Processing batch of {batch_size} packages.")
+                total_scanned += batch_size
+                context.log.info(
+                    f"Go - Processing batch of {batch_size} packages "
+                    f"(cursor: {current_cursor})"
+                )
 
                 for package_name in package_names:
                     try:
@@ -98,6 +106,10 @@ def go_package_ingestion(
                         )
                         await extractor.run()
                         new_packages += 1
+                        context.log.info(
+                            f"Go - Ingested: {package_name} "
+                            f"(new: {new_packages}, skipped: {skipped_packages})"
+                        )
 
                     except Exception as e:
                         error_count += 1
@@ -105,11 +117,17 @@ def go_package_ingestion(
                         context.log.error(f"Go - Error ingesting {package_name}: {e}")
 
                 current_cursor = next_cursor
-                await redis.set(cursor_key, current_cursor)
-                context.log.info(f"Go - Batch processed. New cursor: {current_cursor}")
+                redis.r.set(CURSOR_KEY, current_cursor)
+                context.log.info(f"Go - Cursor advanced to: {current_cursor}")
+
+            logger.info(
+                f"Go ingestion completed. "
+                f"Scanned: {total_scanned}, New: {new_packages}, "
+                f"Skipped: {skipped_packages}, Errors: {error_count}"
+            )
 
             return {
-                "total_in_index_batch": total_packages,
+                "total_scanned": total_scanned,
                 "new_packages_ingested": new_packages,
                 "skipped_existing": skipped_packages,
                 "errors": error_count,
@@ -122,11 +140,12 @@ def go_package_ingestion(
         return Output(
             value=stats,
             metadata={
-                "total_scanned": stats["total_in_index_batch"],
+                "total_scanned": stats["total_scanned"],
                 "new_packages_ingested": stats["new_packages_ingested"],
-                "cursor_start": stats["cursor_start"],
-                "cursor_end": stats["cursor_end"],
+                "skipped_existing": stats["skipped_existing"],
                 "errors": stats["errors"],
+                "cursor_start": MetadataValue.text(stats["cursor_start"]),
+                "cursor_end": MetadataValue.text(stats["cursor_end"]),
             },
         )
 
@@ -146,16 +165,9 @@ def go_packages_updates(
     """
     Dagster asset that incrementally updates Go module versions in the graph.
 
-    Iterates over all GoPackage nodes currently stored in the graph in batches
-    and delegates version synchronisation to GoVersionUpdater. Only new
-    versions discovered since the last run are attributed and persisted, making
-    this asset efficient for frequent scheduling.
-
-    Returns:
-        An Output wrapping a stats dictionary with the following keys:
-          - packages_processed: Total number of packages evaluated.
-          - total_versions:     Cumulative version count across all packages.
-          - errors:             Count of packages that failed during update.
+    Iterates over all GoPackage nodes in the graph in batches and delegates
+    version synchronisation to GoVersionUpdater. Only versions absent from the
+    graph are attributed and persisted.
     """
     try:
         logger.info("Starting Go package version update process")
@@ -188,11 +200,15 @@ def go_packages_updates(
                         version_count += versions
                         context.log.info(
                             f"Go - Updated {pkg['name']} "
-                            f"(Total processed: {package_count})"
+                            f"(total processed: {package_count})"
                         )
                     except Exception as e:
                         error_count += 1
                         logger.error(f"Go - Error updating {pkg['name']}: {e}")
+
+            logger.info(
+                f"Go update completed. Packages: {package_count}, Errors: {error_count}"
+            )
 
             return {
                 "packages_processed": package_count,
@@ -206,7 +222,17 @@ def go_packages_updates(
             value=stats,
             metadata={
                 "packages_processed": stats["packages_processed"],
+                "total_versions": stats["total_versions"],
                 "errors": stats["errors"],
+                "success_rate": MetadataValue.float(
+                    (
+                        stats["packages_processed"]
+                        / (stats["packages_processed"] + stats["errors"])
+                        * 100
+                    )
+                    if (stats["packages_processed"] + stats["errors"]) > 0
+                    else 0.0
+                ),
             },
         )
 

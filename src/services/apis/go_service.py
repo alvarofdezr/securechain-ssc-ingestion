@@ -77,9 +77,6 @@ class GoService:
                     if not line:
                         continue
                     try:
-                        # The index returns NDJSON; parse each line as a full
-                        # JSON object rather than using regex to avoid brittle
-                        # string matching against potentially escaped characters.
                         entry = loads(line)
                         if "Path" in entry:
                             package_names.add(entry["Path"])
@@ -107,15 +104,20 @@ class GoService:
         stream of module publications. This enables incremental, cursor-based
         ingestion that is resumable and avoids reprocessing the entire index.
 
+        The method is safe against infinite loops: if the response contains
+        fewer entries than `limit`, the caller should treat the batch as the
+        last one and stop. If `last_timestamp` equals `since`, an empty result
+        is returned to prevent the cursor from stalling.
+
         Args:
             since: An RFC3339 timestamp string (e.g. "2019-04-10T19:08:52Z").
             limit: Max number of entries to return. Defaults to 2000.
 
         Returns:
-            A tuple containing:
+            A tuple of:
             - A list of unique module path strings from the batch.
-            - The timestamp of the last entry, to be used as the cursor for
-              the next iteration. Returns an empty string if the batch is empty.
+            - The timestamp of the last entry as the next cursor. Returns an
+              empty string if the batch is empty or the cursor did not advance.
         """
         url = f"{self.INDEX_URL}?since={since}&limit={limit}"
         session_manager = get_session_manager()
@@ -124,15 +126,17 @@ class GoService:
         try:
             async with session.get(url) as resp:
                 if resp.status != 200:
+                    logger.warning(
+                        f"GoService - Index returned HTTP {resp.status} for since={since}"
+                    )
                     return [], ""
 
                 text = await resp.text()
                 package_names: set[str] = set()
                 last_timestamp = ""
-                lines = text.splitlines()
+                lines = [l for l in text.splitlines() if l.strip()]
+
                 for line in lines:
-                    if not line:
-                        continue
                     try:
                         entry = loads(line)
                         if "Path" in entry:
@@ -141,6 +145,12 @@ class GoService:
                             last_timestamp = entry["Timestamp"]
                     except (JSONDecodeError, KeyError):
                         continue
+
+                if last_timestamp == since or not last_timestamp:
+                    return [], since
+
+                if len(lines) < limit:
+                    return list(package_names), last_timestamp
 
                 return list(package_names), last_timestamp
 
@@ -302,7 +312,6 @@ class GoService:
         Returns:
             True if the string matches the pseudo-version pattern, False otherwise.
         """
-        # A pseudo-version is vX.Y.Z-timestamp-hash. Example: v0.0.0-20210101000000-abcdef123456
         pseudo_version_pattern = r"^v\d+\.\d+\.\d+-\d{14}-[a-f0-9]{12}$"
         return re.match(pseudo_version_pattern, version_str) is not None
 
@@ -361,7 +370,9 @@ class GoService:
                     return [module_path]
                 size = int(resp.headers.get("Content-Length", 0))
                 if size > self.MAX_ZIP_SIZE:
-                    logger.warning(f"Skipping large module zip: {module_path}@{version}")
+                    logger.warning(
+                        f"GoService - Skipping large module zip: {module_path}@{version} ({size} bytes)"
+                    )
                     return [module_path]
 
             async with session.get(url) as resp:
@@ -370,28 +381,34 @@ class GoService:
 
                 zip_bytes = await resp.read()
                 zip_file = zipfile.ZipFile(io.BytesIO(zip_bytes))
-                
-                importable_dirs = set()
+
+                importable_dirs: set[str] = set()
                 prefix = f"{module_path}@{version}/"
 
                 for name in zip_file.namelist():
-                    if not name.startswith(prefix) or not name.endswith(".go") or name.endswith("_test.go"):
+                    if (
+                        not name.startswith(prefix)
+                        or not name.endswith(".go")
+                        or name.endswith("_test.go")
+                    ):
                         continue
-                    
+
                     dir_name = "/".join(name[len(prefix):].split("/")[:-1])
                     importable_dirs.add(dir_name)
-                
-                import_names = {module_path}
+
+                import_names: set[str] = {module_path}
                 for dir_path in importable_dirs:
                     if dir_path:
                         import_names.add(f"{module_path}/{dir_path}")
 
-                result = sorted(list(import_names))
-                await self.cache.set_cache(cache_key, result, ttl=604800)  # 7 days
+                result = sorted(import_names)
+                await self.cache.set_cache(cache_key, result, ttl=604800) 
                 return result
 
         except (ClientConnectorError, zipfile.BadZipFile, Exception) as e:
-            logger.error(f"Failed to get import names for {module_path}@{version}: {e}")
+            logger.error(
+                f"GoService - Failed to get import names for {module_path}@{version}: {e}"
+            )
             return [module_path]
 
     async def get_package_requirements(
@@ -426,6 +443,8 @@ class GoService:
                 if resp.status == 200:
                     content = await resp.text()
                     return self._parse_go_mod(content)
+                if resp.status in (404, 410):
+                    return {}
         except Exception as e:
             logger.error(
                 f"GoService - Error fetching go.mod for {package_name}@{version}: {e}"
