@@ -1,5 +1,3 @@
-
-import pytest
 from src.schemas.go_package_schema import GoPackageSchema
 
 
@@ -33,4 +31,3 @@ def test_schema_strips_whitespace():
     """
     schema = GoPackageSchema(name="  github.com/foo/bar  ")
     assert schema.name == "github.com/foo/bar"
-

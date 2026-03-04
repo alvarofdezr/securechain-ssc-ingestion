@@ -9,8 +9,10 @@ from src.services.apis.go_service import GoService
 @pytest.fixture
 def go_service():
     """Provides a GoService instance with a mocked cache."""
-    with patch("src.services.apis.go_service.get_cache_manager") as mock_get_cache, \
-         patch("src.services.apis.go_service.get_orderer") as mock_get_orderer:
+    with (
+        patch("src.services.apis.go_service.get_cache_manager") as mock_get_cache,
+        patch("src.services.apis.go_service.get_orderer") as mock_get_orderer,
+    ):
         mock_cache = MagicMock()
         mock_cache.get_cache = AsyncMock(return_value=None)
         mock_cache.set_cache = AsyncMock()
@@ -63,9 +65,7 @@ async def test_fetch_all_package_names_handles_malformed_lines(go_service: GoSer
     mock_response = MagicMock()
     mock_response.text = AsyncMock(
         return_value=(
-            '{"Path": "github.com/a/a"}\n'
-            'not-json\n'
-            '{"Path": "github.com/c/c"}'
+            '{"Path": "github.com/a/a"}\nnot-json\n{"Path": "github.com/c/c"}'
         )
     )
     mock_session.get.return_value.__aenter__.return_value = mock_response

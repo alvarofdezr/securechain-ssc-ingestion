@@ -7,7 +7,7 @@ from asyncio import sleep
 from json import JSONDecodeError, loads
 from typing import Any
 
-from aiohttp import ClientConnectorError, ContentTypeError
+from aiohttp import ClientConnectorError
 
 from src.dependencies import (
     get_cache_manager,
@@ -134,7 +134,7 @@ class GoService:
                 text = await resp.text()
                 package_names: set[str] = set()
                 last_timestamp = ""
-                lines = [l for l in text.splitlines() if l.strip()]
+                lines = [line for line in text.splitlines() if line.strip()]
 
                 for line in lines:
                     try:
@@ -393,7 +393,7 @@ class GoService:
                     ):
                         continue
 
-                    dir_name = "/".join(name[len(prefix):].split("/")[:-1])
+                    dir_name = "/".join(name[len(prefix) :].split("/")[:-1])
                     importable_dirs.add(dir_name)
 
                 import_names: set[str] = {module_path}
@@ -402,7 +402,7 @@ class GoService:
                         import_names.add(f"{module_path}/{dir_path}")
 
                 result = sorted(import_names)
-                await self.cache.set_cache(cache_key, result, ttl=604800) 
+                await self.cache.set_cache(cache_key, result, ttl=604800)
                 return result
 
         except (ClientConnectorError, zipfile.BadZipFile, Exception) as e:

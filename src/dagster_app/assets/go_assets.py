@@ -194,8 +194,10 @@ def go_packages_updates(
                         await updater.update_package_versions(pkg)
                         package_count += 1
 
-                        versions = await version_svc.count_number_of_versions_by_package(
-                            "GoPackage", pkg["name"]
+                        versions = (
+                            await version_svc.count_number_of_versions_by_package(
+                                "GoPackage", pkg["name"]
+                            )
                         )
                         version_count += versions
                         context.log.info(

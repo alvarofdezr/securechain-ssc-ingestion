@@ -33,7 +33,7 @@ def package_service_mock():
     mock = MagicMock()
     mock.create_package_and_versions = AsyncMock(return_value=[])
     mock.read_package_by_name = AsyncMock(
-        side_effect=lambda type, name: {"name": name, "id": "some-id"} if name == "known/pkg" else None
+        side_effect=lambda node_type, name: {"name": name, "id": "some-id"} if name == "known/pkg" else None
     )
     mock.relate_packages = AsyncMock()
     mock.update_package_moment = AsyncMock()
@@ -122,17 +122,18 @@ async def test_generate_packages_relates_known_packages(
     call_args = package_service_mock.create_package_and_versions.call_args[0]
     assert call_args[0] == "GoPackage"
 
+
 @pytest.mark.asyncio
 async def test_cycle_protection_stops_infinite_recursion(
     go_extractor, go_service_mock, package_service_mock
 ):
     """
-    Validates that when the maximum recursion depth is reached, the extractor 
-    does not attempt to create new packages for unknown dependencies, which 
+    Validates that when the maximum recursion depth is reached, the extractor
+    does not attempt to create new packages for unknown dependencies, which
     prevents infinite loops in cases of cyclic dependencies
     """
     go_service_mock.get_package_requirements = AsyncMock(
-        return_value={"test/pkg": "v1.0.0"} 
+        return_value={"test/pkg": "v1.0.0"}
     )
     package_service_mock.create_package_and_versions = AsyncMock(
         return_value=[{"name": "v1.0.0", "id": "id-1"}]
@@ -149,14 +150,16 @@ async def test_only_latest_version_dependencies_resolved(
 ):
     """
     Verifies that only the latest version of a package is processed for
-    dependencies. Older versions should not trigger dependency resolution, which    
+    dependencies. Older versions should not trigger dependency resolution, which
     prevents redundant work and potential cycles in the graph.
     """
-    go_service_mock.get_versions = AsyncMock(return_value=[
-        {"name": "v1.0.0", "serial_number": 0},
-        {"name": "v1.1.0", "serial_number": 1},
-        {"name": "v1.2.0", "serial_number": 2},
-    ])
+    go_service_mock.get_versions = AsyncMock(
+        return_value=[
+            {"name": "v1.0.0", "serial_number": 0},
+            {"name": "v1.1.0", "serial_number": 1},
+            {"name": "v1.2.0", "serial_number": 2},
+        ]
+    )
     package_service_mock.create_package_and_versions = AsyncMock(
         return_value=[
             {"name": "v1.0.0", "id": "id-1"},

@@ -79,20 +79,20 @@ class GoVersionUpdater:
         )
 
         if stored_count < len(versions):
-            actual_version_names = await self.version_service.read_versions_names_by_package(
-                "GoPackage", package_name
+            actual_version_names = (
+                await self.version_service.read_versions_names_by_package(
+                    "GoPackage", package_name
+                )
             )
 
             # Separate new versions from already-stored ones using list
             # comprehensions to avoid mutating the list during iteration,
             # which would cause index drift and silently skip elements.
             new_versions = [
-                v for v in versions
-                if v.get("name", "") not in actual_version_names
+                v for v in versions if v.get("name", "") not in actual_version_names
             ]
             existing_versions = [
-                v for v in versions
-                if v.get("name", "") in actual_version_names
+                v for v in versions if v.get("name", "") in actual_version_names
             ]
 
             new_attributed_versions = [

@@ -122,7 +122,9 @@ class GoPackageExtractor(PackageExtractor):
         depth cap.
         """
         if package_name in _IN_PROGRESS:
-            logger.debug(f"Go - [{package_name}] Already in progress, skipping to prevent cycle.")
+            logger.debug(
+                f"Go - [{package_name}] Already in progress, skipping to prevent cycle."
+            )
             return
         _IN_PROGRESS.add(package_name)
 
