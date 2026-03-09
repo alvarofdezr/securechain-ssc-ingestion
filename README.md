@@ -867,14 +867,14 @@ r = Redis(host='localhost', port=6379, db=0)
 
 # Create message following PackageMessageSchema
 message = {
-    "node_type": "PyPIPackage",      # Required
-    "package": "requests",            # Required
-    "vendor": "Kenneth Reitz",        # Optional
+    "node_type": "PyPIPackage",                           # Required
+    "package": "requests",                                # Required
+    "vendor": "Kenneth Reitz",                            # Optional
     "repository_url": "https://github.com/psf/requests",  # Optional
-    "constraints": ">=2.0.0,<3.0.0",  # Optional
-    "parent_id": "abc123",            # Optional
-    "parent_version": "1.0.0",        # Optional
-    "refresh": False                  # Optional
+    "constraints": ">=2.0.0,<3.0.0",                      # Optional
+    "parent_id": "abc123",                                # Optional
+    "parent_version_name": "1.0.0",                       # Optional
+    "refresh": False                                      # Optional
 }
 
 # Add to stream
