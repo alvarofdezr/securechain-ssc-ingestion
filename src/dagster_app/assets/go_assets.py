@@ -73,8 +73,8 @@ def go_package_ingestion(
                 package_names, next_cursor = await go_svc.fetch_packages_since(
                     current_cursor
                 )
-
-                if not package_names or next_cursor == current_cursor:
+                context.log.info(f"Go - DEBUG: package_names={len(package_names)}, next_cursor={next_cursor!r}")
+                if not package_names or not next_cursor:
                     context.log.info(
                         "Go - No new packages found. Index is fully caught up."
                     )

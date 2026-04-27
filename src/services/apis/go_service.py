@@ -146,7 +146,7 @@ class GoService:
                     except (JSONDecodeError, KeyError):
                         continue
 
-                if last_timestamp == since or not last_timestamp:
+                if not last_timestamp:
                     return [], since
 
                 if len(lines) < limit:
@@ -289,10 +289,10 @@ class GoService:
             else:
                 tagged_versions.append(v_str)
 
-        versions_to_process = tagged_versions if tagged_versions else pseudo_versions
+        versions_to_process = tagged_versions + pseudo_versions
 
         formatted_versions = [
-            {"name": v_str, "release_date": None} for v_str in versions_to_process
+            {"name": v_str, "release_date": None} for v_str in set(versions_to_process)
         ]
         return self.orderer.order_versions(formatted_versions)
 

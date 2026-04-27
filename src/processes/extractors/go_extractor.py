@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from asyncio import Semaphore
 from datetime import datetime
 from typing import Any
@@ -13,27 +14,11 @@ from src.utils import Attributor
 from .base import PackageExtractor
 
 _MAX_DEPTH = 2
-
 _GO_SEMAPHORE = Semaphore(10)
-
 _IN_PROGRESS: set[str] = set()
 
 
 class GoPackageExtractor(PackageExtractor):
-    """
-    Extraction orchestrator for Go module packages.
-
-    Coordinates the full ingestion lifecycle for a single Go module: fetching
-    available versions from the proxy, attributing CVE data via the Attributor,
-    persisting the package and version nodes through PackageService, and
-    recursively resolving transitive dependencies by parsing the go.mod for
-    each ingested version.
-
-    Recursion is capped at _MAX_DEPTH to prevent infinite traversal of Go's
-    dense dependency graph. A module-level semaphore throttles concurrent
-    proxy requests across all extractor instances in a run.
-    """
-
     def __init__(
         self,
         package: GoPackageSchema,
@@ -76,6 +61,9 @@ class GoPackageExtractor(PackageExtractor):
         if self._depth >= _MAX_DEPTH:
             known_packages: list[dict[str, Any]] = []
             for package_name, constraints in requirement.items():
+                if not package_name or not package_name.strip():
+                    logger.warning("Go - Skipping empty package name")
+                    continue
                 package = await self.package_service.read_package_by_name(
                     "GoPackage", package_name
                 )
@@ -84,12 +72,17 @@ class GoPackageExtractor(PackageExtractor):
                     package["parent_version_name"] = parent_version_name
                     package["constraints"] = constraints
                     known_packages.append(package)
+
             if known_packages:
                 await self.package_service.relate_packages("GoPackage", known_packages)
             return
 
         known_packages = []
         for package_name, constraints in requirement.items():
+            if not package_name or not package_name.strip():
+                logger.warning("Go - Skipping empty package name")
+                continue
+
             package = await self.package_service.read_package_by_name(
                 "GoPackage", package_name
             )
@@ -126,24 +119,28 @@ class GoPackageExtractor(PackageExtractor):
                 f"Go - [{package_name}] Already in progress, skipping to prevent cycle."
             )
             return
+
         _IN_PROGRESS.add(package_name)
+
+        api_package_name = package_name
+        if re.search(r'/v[2-9][0-9]*$', package_name):
+            api_package_name = package_name.rsplit('/v', 1)[0]
 
         try:
             async with _GO_SEMAPHORE:
-                versions = await self.go_service.get_versions(package_name)
+                versions = await self.go_service.get_versions(api_package_name)
 
             if not versions:
                 return
 
-            repository_url = self.go_service.get_repo_url(package_name)
+            repository_url = self.go_service.get_repo_url(api_package_name)
             parts = package_name.split("/")
             vendor = parts[0] if parts else "n/a"
-
             latest_version = versions[-1]["name"]
 
             async with _GO_SEMAPHORE:
                 import_names = await self.go_service.get_import_names(
-                    package_name, latest_version
+                    api_package_name, latest_version
                 )
 
             attributed_versions = [
@@ -176,6 +173,9 @@ class GoPackageExtractor(PackageExtractor):
                 "GoPackage", package_name, versions
             )
             await self.package_service.update_package_moment("GoPackage", package_name)
+
+        except Exception as e:
+            logger.error(f"Go - Error in create_package ({package_name}): {e}")
         finally:
             _IN_PROGRESS.discard(package_name)
 
@@ -204,6 +204,7 @@ class GoPackageExtractor(PackageExtractor):
             attributor=self.attributor,
             _depth=self._depth + 1,
         )
+
         await child_extractor.generate_packages(
             requirements,
             version.get("id", ""),

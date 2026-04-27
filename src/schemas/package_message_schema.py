@@ -11,7 +11,7 @@ class PackageMessageSchema(BaseModel):
     )
     package: str = Field(..., description="Package name")
     vendor: str = Field("n/a", description="Package vendor")
-    repository_url: HttpUrl | None = Field(default=None, description="Repository URL")
+    repository_url: str | None = Field(default="", description="Repository URL")
     moment: datetime = Field(default_factory=datetime.now)
     constraints: str | None = None
     parent_id: str | None = None
