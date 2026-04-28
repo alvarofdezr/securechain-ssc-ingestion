@@ -12,6 +12,8 @@ class Attributor:
     async def attribute_vulnerabilities(
         self, package_name: str, version: Any
     ) -> dict[str, Any]:
+        self.impacts = []
+
         vulnerabilities = await self.vulnerability_service.read_vulnerabilities_by_package_and_version(
             package_name, version["name"]
         )

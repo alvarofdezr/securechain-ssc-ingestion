@@ -170,7 +170,7 @@ class GoPackageExtractor(PackageExtractor):
                 await self.extract_packages(package_name, latest_created)
 
             await self.version_service.update_versions_serial_number(
-                "GoPackage", package_name, versions
+                "GoPackage", package_name, attributed_versions
             )
             await self.package_service.update_package_moment("GoPackage", package_name)
 
