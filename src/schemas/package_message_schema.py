@@ -1,25 +1,25 @@
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field, HttpUrl
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class PackageMessageSchema(BaseModel):
     """Schema for asynchronous package analysis messages in the processing queue.
-    
+
     Defines the structure of package metadata and context for asynchronous
     ingestion and analysis operations. Messages are enqueued in Redis Streams
     for consumption by workers that fetch package data, attribute vulnerabilities,
     and persist package information to the knowledge graph.
-    
+
     Enables both primary package ingestion (parent_id and parent_version are None)
     and transitive dependency analysis (when linked to a parent package version).
-    
+
     Configuration:
     - Assignment validation enabled: field changes are validated after initialization.
     - Automatic whitespace stripping: string fields are trimmed of leading/trailing spaces.
-    
+
     Attributes:
-        node_type: Package manager ecosystem classification 
+        node_type: Package manager ecosystem classification
             (e.g., 'PyPIPackage', 'NPMPackage', 'MavenPackage', 'GoPackage').
             Used to determine version parsing semantics and constraint dialects.
         package: Package name or identifier as registered in the package manager

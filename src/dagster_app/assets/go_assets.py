@@ -26,25 +26,25 @@ def go_package_ingestion(
     context: AssetExecutionContext,
 ) -> Output[dict[str, Any]]:
     """Ingests new Go modules incrementally from the Go Index using cursor-based pagination.
-    
+
     Performs cursor-based pagination against the Go Index (index.golang.org) to discover
     new modules published since the last successful run. The ingestion cursor is persisted
     in Redis to survive container restarts and Dagster job reruns without depending on
     ephemeral storage.
-    
+
     Workflow:
     1. Retrieve cursor from Redis (defaults to Go proxy launch date if not set).
     2. Fetch batch of new module paths from Go Index since cursor timestamp.
     3. For each module: skip if already persisted in graph, otherwise extract metadata.
     4. Advance cursor after successful batch completion.
     5. Repeat until index is fully synchronized (empty batch returned).
-    
+
     Cursor advancement is atomic per batch, ensuring safe resumption on failure
     (duplicate MERGE operations are idempotent).
-    
+
     Args:
         context: Dagster asset execution context providing logging and metadata interface.
-    
+
     Returns:
         Output containing dictionary with ingestion statistics:
         - total_scanned: Total module names examined in this run.
@@ -53,7 +53,7 @@ def go_package_ingestion(
         - errors: Modules that failed extraction.
         - cursor_start: Initial cursor timestamp.
         - cursor_end: Final cursor timestamp after completion.
-    
+
     Raises:
         Exception: Re-raises any unhandled exceptions from dependency initialization,
             Go API calls, or package extraction with error logging.
@@ -176,25 +176,25 @@ def go_packages_updates(
     context: AssetExecutionContext,
 ) -> Output[dict[str, Any]]:
     """Incrementally synchronizes Go module versions with the dependency graph.
-    
+
     Iterates over all GoPackage nodes in the graph in configurable batches and
     delegates version synchronization to GoVersionUpdater. Only versions absent
     from the graph are attributed with vulnerability and metadata information,
     then persisted.
-    
+
     Batch processing allows efficient handling of large package collections while
     maintaining transaction isolation and memory efficiency.
-    
+
     Args:
         context: Dagster asset execution context providing logging and metadata interface.
-    
+
     Returns:
         Output containing dictionary with update statistics:
         - packages_processed: Number of GoPackage nodes updated.
         - total_versions: Cumulative version count across all updated packages.
         - errors: Number of packages that failed update.
         - success_rate: Percentage of packages updated successfully (computed metric).
-    
+
     Raises:
         Exception: Re-raises any unhandled exceptions from dependency initialization,
             package updates, or version queries with error logging.

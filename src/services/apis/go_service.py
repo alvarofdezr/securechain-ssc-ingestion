@@ -28,7 +28,7 @@ class GoService:
     External endpoints:
     - Index: https://index.golang.org/index (new module stream)
     - Proxy: https://proxy.golang.org (version info and go.mod)
-    
+
     Attributes:
         cache: Cache manager instance for response caching.
         PROXY_URL: Base URL for the Go module proxy.
@@ -47,21 +47,21 @@ class GoService:
 
     async def fetch_all_package_names(self, limit: int = 2000) -> list[str]:
         """Retrieves a deduplicated list of module paths from the Go module index.
-        
+
         Fetches a fixed-size batch from the start of the index. For incremental,
         cursor-based ingestion that resumes on failure, use fetch_packages_since instead.
-        
+
         The index endpoint returns newline-delimited JSON (NDJSON), where each line
         is a JSON object with at minimum a 'Path' field. Results are cached for one
         hour to avoid repeated requests across pipeline runs.
-        
+
         Args:
             limit: Maximum number of index entries to fetch in a single request (default: 2000).
-        
+
         Returns:
             A deduplicated list of module path strings. Returns empty list on any
             network or parse failure.
-        
+
         Raises:
             No exceptions raised. Errors are logged and result in returning an empty list.
         """
@@ -102,25 +102,25 @@ class GoService:
         self, since: str, limit: int = 2000
     ) -> tuple[list[str], str]:
         """Fetches a batch of module updates from the Go index since a given timestamp.
-        
+
         Uses the ?since=<timestamp> query parameter to retrieve a chronological stream
         of module publications, enabling incremental, cursor-based ingestion that is
         resumable and avoids reprocessing the entire index.
-        
+
         Safe against infinite loops: if the response contains fewer entries than limit,
         the caller should treat the batch as the final one and stop. If last_timestamp
         equals since, an empty result is returned to prevent cursor stalling.
-        
+
         Args:
             since: RFC3339 timestamp string (e.g., '2019-04-10T19:08:52Z').
             limit: Maximum number of entries to return (default: 2000).
-        
+
         Returns:
             A tuple of:
             - List of unique module path strings from the batch.
             - Timestamp of the last entry as the next cursor. Empty string if batch
               is empty or cursor did not advance.
-        
+
         Raises:
             No exceptions raised. Connection errors are logged and result in
             returning empty tuple components.
@@ -169,22 +169,22 @@ class GoService:
 
     async def fetch_versions_list(self, package_name: str) -> list[str]:
         """Fetches the list of tagged versions available for a module from the Go proxy.
-        
+
         Queries the /@v/list endpoint, which returns a plain-text newline-separated
         list of version strings. Pseudo-versions and pre-release tags are included
         as-is. Results are cached for 10 minutes given infrequent version publication
         relative to the ingestion cycle.
-        
+
         HTTP 404 or 410 responses indicate the module is unavailable (retracted or
         unpublished) and are treated as empty version lists rather than errors.
-        
+
         Args:
             package_name: Canonical module path (e.g., 'github.com/gin-gonic/gin').
-        
+
         Returns:
             List of version strings (e.g., ['v1.9.0', 'v1.8.2']). Returns empty list
             if module not found or on repeated network failure after three retry attempts.
-        
+
         Raises:
             No exceptions raised. Errors are logged and result in returning an empty list.
         """
@@ -217,19 +217,19 @@ class GoService:
         self, package_name: str, version: str
     ) -> dict[str, Any]:
         """Fetches version metadata from the Go proxy /@v/{version}.info endpoint.
-        
+
         Retrieves version metadata including 'Version' and 'Time' fields. The 'Time'
         field carries the canonical release timestamp and is used to populate
         release_date in the dependency graph. Results are cached for one hour.
-        
+
         Args:
             package_name: Canonical module path.
             version: Version string, with or without the leading 'v' prefix.
-        
+
         Returns:
             Dictionary with proxy response fields. Returns empty dict if version
             not found (404/410) or on network failure.
-        
+
         Raises:
             No exceptions raised. Errors are logged and result in returning an empty dict.
         """
@@ -263,23 +263,23 @@ class GoService:
 
     async def get_versions(self, package_name: str) -> list[dict[str, Any]]:
         """Retrieves an ordered list of version descriptors for a module.
-        
+
         Fetches raw version strings from the proxy and categorizes them into tagged
         releases and pseudo-versions. If tagged releases exist, only those are processed.
         If no tagged releases exist, pseudo-versions are included to ensure the module
         is not omitted from the graph.
-        
+
         The final list is delegated to an Orderer instance for semantic version sorting
         and serial number assignment.
-        
+
         Args:
             package_name: Canonical module path.
-        
+
         Returns:
             List of version descriptor dicts with 'name', 'release_date', and
             'serial_number' keys, ordered by ascending semantic version.
             Returns empty list if no versions available.
-        
+
         Raises:
             Exception: Propagates exceptions from Orderer operations.
         """
@@ -305,15 +305,15 @@ class GoService:
     @staticmethod
     def _is_pseudo_version(version_str: str) -> bool:
         """Determines if a version string is a Go pseudo-version.
-        
+
         Go pseudo-versions are generated for commits without version tags and follow
         a strict format: vX.Y.Z-yyyymmddhhmmss-commit. This method distinguishes
         them from standard pre-release tags (e.g., v1.0.0-beta.1), which should
         not be filtered.
-        
+
         Args:
             version_str: The version string to check.
-        
+
         Returns:
             True if the string matches the pseudo-version pattern, False otherwise.
         """
@@ -322,15 +322,15 @@ class GoService:
 
     def get_repo_url(self, package_name: str) -> str:
         """Derives the source repository URL for a module from its path.
-        
+
         For modules hosted on well-known VCS platforms (github.com, gitlab.com),
         constructs the repository URL directly from the module path. For all other
         modules, uses the canonical pkg.go.dev documentation URL as fallback,
         which is publicly accessible and valid for any module via the Go proxy.
-        
+
         Args:
             package_name: Canonical module path.
-        
+
         Returns:
             Fully qualified HTTPS URL string.
         """
@@ -342,24 +342,24 @@ class GoService:
 
     async def get_import_names(self, module_path: str, version: str) -> list[str]:
         """Extracts the list of importable package paths from a Go module's source.
-        
+
         Downloads the module's .zip archive from the proxy and inspects it in-memory
         to identify all directories containing at least one non-test .go file. The
         import path for each directory is constructed by joining the module path
         with the directory's relative path inside the zip.
-        
+
         Archives larger than MAX_ZIP_SIZE are skipped with a warning to prevent
         memory exhaustion. Network failures and zip parsing errors fall back safely
         to returning the module path itself.
-        
+
         Args:
             module_path: Canonical module path.
             version: Version string of the module to inspect.
-        
+
         Returns:
             Sorted list of unique import paths. Returns [module_path] as safe fallback
             if zip cannot be fetched, is invalid, or exceeds size limits.
-        
+
         Raises:
             No exceptions raised. Errors are logged and result in fallback return.
         """
@@ -424,20 +424,20 @@ class GoService:
         self, package_name: str, version: str
     ) -> dict[str, str]:
         """Downloads and parses the go.mod file for a specific module version.
-        
+
         Queries the /@v/{version}.mod endpoint, which returns raw go.mod content.
         Parses the file to extract direct and indirect require directives, used
         during transitive dependency extraction to populate child package nodes
         in the knowledge graph.
-        
+
         Args:
             package_name: Canonical module path of the parent module.
             version: Tagged version string for which to fetch the go.mod file.
-        
+
         Returns:
             Dictionary mapping required module paths to their declared version strings.
             Returns empty dict if file cannot be fetched or parsed.
-        
+
         Raises:
             No exceptions raised. Errors are logged and result in returning an empty dict.
         """
@@ -464,14 +464,14 @@ class GoService:
 
     def _parse_go_mod(self, content: str) -> dict[str, str]:
         """Parses require directives from raw go.mod content.
-        
+
         Handles both block form (require (...)) and single-line form (require ...).
         Inline comments (e.g., '// indirect') are stripped to prevent annotation
         tokens from being captured as part of the version string.
-        
+
         Args:
             content: Raw text content of a go.mod file.
-        
+
         Returns:
             Mapping of module paths to their declared version strings.
         """

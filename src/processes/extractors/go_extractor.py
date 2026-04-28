@@ -20,16 +20,16 @@ _IN_PROGRESS: set[str] = set()
 
 class GoPackageExtractor(PackageExtractor):
     """Extracts, attributes, and persists Go modules with their dependency graph.
-    
+
     Orchestrates the ingestion pipeline for Go packages, including version discovery,
     vulnerability attribution, and recursive dependency extraction. Implements depth-based
     recursion limiting and anti-circularity safeguards to prevent infinite traversal
     of circular dependency graphs.
-    
+
     Uses a module-level semaphore to throttle concurrent requests to the Go proxy
     API (max 10 concurrent). A module-level set tracks packages currently being
     processed to prevent re-entrant calls regardless of recursion depth.
-    
+
     Attributes:
         package: GoPackageSchema describing the package being extracted.
         package_service: Service for package CRUD and relationship operations.
@@ -50,7 +50,7 @@ class GoPackageExtractor(PackageExtractor):
         **kwargs: Any,
     ) -> None:
         """Initializes a Go package extractor with required service dependencies.
-        
+
         Args:
             package: The Go package schema to extract.
             package_service: Package data access service.
@@ -70,7 +70,7 @@ class GoPackageExtractor(PackageExtractor):
 
     async def run(self) -> None:
         """Initiates package extraction as the primary entry point.
-        
+
         Delegates to create_package with root-level parameters.
         """
         await self.create_package(
@@ -87,18 +87,18 @@ class GoPackageExtractor(PackageExtractor):
         parent_version_name: str | None = None,
     ) -> None:
         """Processes a batch of module requirements and links them to a parent version.
-        
+
         Classifies packages into known (already persisted) and unknown (new) categories.
         Known packages are bulk-related to the parent; unknown packages are created
         individually only when recursion depth is below _MAX_DEPTH to prevent
         unbounded traversal. At or beyond maximum depth, unknown packages are skipped.
-        
+
         Args:
             requirement: Dictionary mapping package names to version constraints.
             parent_id: The parent version element ID to establish relationships.
             parent_version_name: Semantic version identifier of the parent module
                 (used for transitive dependency tracking).
-        
+
         Raises:
             Exception: Propagates exceptions from package service operations.
         """
@@ -150,7 +150,7 @@ class GoPackageExtractor(PackageExtractor):
         parent_version_name: str | None = None,
     ) -> None:
         """Fetches, attributes, and persists a Go module with all its versions.
-        
+
         Orchestrates the complete ingestion workflow for a single package:
         1. Anti-circularity check: skip if already in progress.
         2. Normalize major version suffix (e.g., github.com/user/pkg/v2 -> github.com/user/pkg).
@@ -161,17 +161,17 @@ class GoPackageExtractor(PackageExtractor):
         7. Persist package and versions to graph with relationships.
         8. If below recursion depth, recursively extract dependencies from latest version.
         9. Update version serial numbers for ordering consistency.
-        
+
         Packages with no discoverable versions are silently skipped. A module-level
         _IN_PROGRESS set prevents re-entrant calls for the same package, providing
         circular dependency protection independent of depth-based recursion limiting.
-        
+
         Args:
             package_name: The Go module name (e.g., github.com/user/repo or github.com/user/repo/v2).
             constraints: Optional version constraint specification for the parent relationship.
             parent_id: Optional parent version element ID for establishing relationships.
             parent_version_name: Optional semantic version identifier of the parent.
-        
+
         Raises:
             Exception: Logged and suppressed; errors are reported but do not halt processing.
         """
@@ -244,16 +244,16 @@ class GoPackageExtractor(PackageExtractor):
         self, parent_package_name: str, version: dict[str, Any]
     ) -> None:
         """Resolves and ingests the direct dependencies declared in a version's go.mod file.
-        
+
         Fetches the dependency list for a specific module version from the Go proxy,
         then creates a child extractor with incremented recursion depth to process
         those dependencies. Recursion depth enforcement ensures termination of deep
         or circular dependency graphs within the _MAX_DEPTH limit.
-        
+
         Args:
             parent_package_name: The module name (before version normalization).
             version: Dictionary containing 'name' (semantic version) and 'id' (element ID).
-        
+
         Raises:
             Exception: Propagates exceptions from Go proxy API or extractor operations.
         """
